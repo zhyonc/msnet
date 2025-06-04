@@ -135,7 +135,7 @@ func (p *oPacket) MakeBufferList(uSeqBase uint16, bEnc bool, dwKey []byte) []byt
 		binary.LittleEndian.PutUint16(bufferList[2:4], dataLen)
 		// Encrypt packet data
 		copy(bufferList[headerLen:], p.SendBuff)
-		if gSetting.MSRegion > enum.TMS {
+		if gSetting.MSRegion > enum.TMS || (gSetting.MSRegion == enum.CMS && gSetting.MSVersion < 86) {
 			(*crypt.CIOBufferManipulator).En(nil, bufferList[headerLen:])
 			p.IsEncryptedByShanda = true
 		}

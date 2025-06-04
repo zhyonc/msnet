@@ -47,7 +47,7 @@ func (p *iPacket) DecryptData(dwKey []byte) {
 		return
 	}
 	(*crypt.CAESCipher).Decrypt(nil, gSetting.AESKeyDecrypt, p.RecvBuff, dwKey)
-	if gSetting.MSRegion > enum.TMS {
+	if gSetting.MSRegion > enum.TMS || (gSetting.MSRegion == enum.CMS && gSetting.MSVersion < 86) {
 		(*crypt.CIOBufferManipulator).De(nil, p.RecvBuff)
 	}
 }
