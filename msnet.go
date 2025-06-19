@@ -24,13 +24,14 @@ func New(setting *Setting) {
 	// Setting
 	gSetting = setting
 	// Language coder
-	if gSetting.MSRegion == enum.CMS {
+	switch gSetting.MSRegion {
+	case enum.CMS:
 		langEncoder = simplifiedchinese.GBK.NewEncoder()
 		langDecoder = simplifiedchinese.GBK.NewDecoder()
-	} else if gSetting.MSRegion == enum.TMS {
+	case enum.TMS:
 		langEncoder = traditionalchinese.Big5.NewEncoder()
 		langDecoder = traditionalchinese.Big5.NewDecoder()
-	} else {
+	default:
 		langEncoder = encoding.Nop.NewEncoder()
 		langDecoder = encoding.Nop.NewDecoder()
 	}
@@ -41,6 +42,8 @@ type CClientSocket interface {
 	OnConnect()
 	Flush()
 	OnAliveReq(LP_AliveReq int16)
+	XORRecv(buf []byte)
+	XORSend(buf []byte)
 	OnRead()
 	SendPacket(oPacket COutPacket)
 	OnError(err error)

@@ -2,7 +2,7 @@
 msnet is a pure Golang networking package for MapleStory
 
 ## Installation
- `$ go get github.com/zhyonc/msnet`
+ `$ go get github.com/zhyonc/msnet@latest`
 
 ## Quick Start
 ```golang
@@ -72,6 +72,8 @@ func main() {
 - MSRegion: MapleStory Regions including `KMS(1)`/`KMST(2)`/`JMS(3)`/`CMS(4)`/`TMS(6)`/`MSEA(7)`/`GMS(8)`/`BMS(9)`
 - MSVersion: MapleStory Client Version
 - MSMinorVersion: MapleStory Client Minor Version
+- RecvXOR: The server must use the same XOR key to recover the original packet
+- SendXOR: The client must use the same XOR key to recover the original packet
 - IsCycleAESKey: 
 	- Default is false, `old AES key` will be used, which is compatible with most earlier versions
 	- If set true, `cycle AES key` will be used, which is compatible with newer versions

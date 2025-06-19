@@ -21,7 +21,7 @@ type clientSocket struct {
 	seqSnd     [4]byte
 }
 
-func NewCClientSocket(conn net.Conn, rcv []byte, snd []byte, impl CClientSocketImpl) CClientSocket {
+func NewCClientSocket(conn net.Conn, rcvIV []byte, sndIV []byte, impl CClientSocketImpl) CClientSocket {
 	if gSetting == nil {
 		panic("Please use msnet.New(setting) to install package")
 	}
@@ -31,15 +31,15 @@ func NewCClientSocket(conn net.Conn, rcv []byte, snd []byte, impl CClientSocketI
 		addr:       conn.RemoteAddr(),
 		packetRecv: &iPacket{},
 	}
-	if rcv == nil {
+	if len(rcvIV) == 0 {
 		rand.Read(c.seqRcv[:])
 	} else {
-		c.seqRcv = [4]byte(rcv)
+		c.seqRcv = [4]byte(rcvIV)
 	}
-	if snd == nil {
+	if len(sndIV) == 0 {
 		rand.Read(c.seqSnd[:])
 	} else {
-		c.seqSnd = [4]byte(snd)
+		c.seqSnd = [4]byte(sndIV)
 	}
 	return c
 }
@@ -67,6 +67,7 @@ func (c *clientSocket) OnConnect() {
 	oPacket.EncodeBuffer(c.seqSnd[:])
 	oPacket.Encode1(int8(gSetting.MSRegion))
 	c.sendBuff = oPacket.MakeBufferList(gSetting.MSVersion, false, nil)
+	c.XORSend(c.sendBuff)
 	c.Flush()
 }
 
@@ -85,6 +86,28 @@ func (c *clientSocket) OnAliveReq(LP_AliveReq int16) {
 	c.SendPacket(oPacket)
 }
 
+// XORRecv implements CClientSocket.
+func (c *clientSocket) XORRecv(buf []byte) {
+	// The server must use the same XOR key to recover the original packet
+	if gSetting.RecvXOR == 0 {
+		return
+	}
+	for i := range buf {
+		buf[i] ^= gSetting.RecvXOR
+	}
+}
+
+// XORSend implements CClientSocket.
+func (c *clientSocket) XORSend(buf []byte) {
+	// The client must use the same XOR key to recover the original packet
+	if gSetting.SendXOR == 0 {
+		return
+	}
+	for i := range buf {
+		buf[i] ^= gSetting.SendXOR
+	}
+}
+
 // OnRead implements CClientSocket.
 func (c *clientSocket) OnRead() {
 	readSize := headerLength
@@ -97,6 +120,7 @@ func (c *clientSocket) OnRead() {
 			slog.Error("[OnRead]", "err", err)
 			return
 		}
+		c.XORRecv(c.recvBuff)
 		// CClientSocket::ManipulatePacket
 		if isHeader {
 			// Decode packet header
@@ -125,6 +149,7 @@ func (c *clientSocket) SendPacket(oPacket COutPacket) {
 	c.impl.DebugOutPacketLog(oPacket)
 	c.sendBuff = oPacket.MakeBufferList(gSetting.MSVersion, true, c.seqSnd[:])
 	(*crypt.CIGCipher).InnoHash(nil, c.seqSnd[:]) // Refresh SeqSnd value
+	c.XORSend(c.sendBuff)
 	c.Flush()
 }
 
