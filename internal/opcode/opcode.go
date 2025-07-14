@@ -47,7 +47,7 @@ func GenOpcodeMap(originPath, targetPath, mapName string) {
 				if err != nil {
 					panic(err)
 				}
-				fmt.Fprintf(out, "\t%d: \"%s\",\n", value, name.Name)
+				fmt.Fprintf(out, "\t0x%X: \"%s\",\n", value, name.Name)
 			}
 		}
 		return true

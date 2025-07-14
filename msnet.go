@@ -51,7 +51,7 @@ type CClientSocket interface {
 	GetAddr() string
 }
 
-type CClientSocketImpl interface {
+type CClientSocketDelegate interface {
 	DebugInPacketLog(iPacket CInPacket)
 	DebugOutPacketLog(oPacket COutPacket)
 	ProcessPacket(cs CClientSocket, iPacket CInPacket)

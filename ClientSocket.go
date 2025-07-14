@@ -11,7 +11,7 @@ import (
 )
 
 type clientSocket struct {
-	impl       CClientSocketImpl
+	delegate   CClientSocketDelegate
 	sock       net.Conn
 	addr       net.Addr
 	recvBuff   []byte
@@ -21,12 +21,12 @@ type clientSocket struct {
 	seqSnd     [4]byte
 }
 
-func NewCClientSocket(conn net.Conn, rcvIV []byte, sndIV []byte, impl CClientSocketImpl) CClientSocket {
+func NewCClientSocket(delegate CClientSocketDelegate, conn net.Conn, rcvIV []byte, sndIV []byte) CClientSocket {
 	if gSetting == nil {
 		panic("Please use msnet.New(setting) to install package")
 	}
 	c := &clientSocket{
-		impl:       impl,
+		delegate:   delegate,
 		sock:       conn,
 		addr:       conn.RemoteAddr(),
 		packetRecv: &iPacket{},
@@ -136,8 +136,8 @@ func (c *clientSocket) OnRead() {
 			iPacket := NewCInPacket(c.recvBuff)
 			iPacket.DecryptData(c.seqRcv[:])              // Decrypt using AES OFB mode
 			(*crypt.CIGCipher).InnoHash(nil, c.seqRcv[:]) // Refresh m_uSeqRcv value
-			c.impl.DebugInPacketLog(iPacket)
-			c.impl.ProcessPacket(c, iPacket)
+			c.delegate.DebugInPacketLog(iPacket)
+			c.delegate.ProcessPacket(c, iPacket)
 			readSize = headerLength
 		}
 		isHeader = !isHeader
@@ -146,7 +146,7 @@ func (c *clientSocket) OnRead() {
 
 // SendPacket implements CClientSocket.
 func (c *clientSocket) SendPacket(oPacket COutPacket) {
-	c.impl.DebugOutPacketLog(oPacket)
+	c.delegate.DebugOutPacketLog(oPacket)
 	c.sendBuff = oPacket.MakeBufferList(gSetting.MSVersion, true, c.seqSnd[:])
 	(*crypt.CIGCipher).InnoHash(nil, c.seqSnd[:]) // Refresh SeqSnd value
 	c.XORSend(c.sendBuff)
@@ -161,8 +161,8 @@ func (c *clientSocket) OnError(err error) {
 
 // Close implements CClientSocket.
 func (c *clientSocket) Close() {
-	if c.impl != nil {
-		c.impl.SocketClose()
+	if c.delegate != nil {
+		c.delegate.SocketClose()
 	}
 	c.sock.Close()
 	c = nil

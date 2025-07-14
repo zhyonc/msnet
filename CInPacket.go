@@ -1,12 +1,12 @@
 package msnet
 
 import (
+	"fmt"
 	"log/slog"
 
 	"github.com/zhyonc/msnet/internal/crypt"
 	"github.com/zhyonc/msnet/internal/enum"
 
-	"strconv"
 	"strings"
 	"time"
 )
@@ -196,9 +196,9 @@ func (p *iPacket) DumpString(nSize int) string {
 	var builder strings.Builder
 	for i := range nSize {
 		v := p.RecvBuff[i]
-		builder.WriteString(strconv.Itoa(int(v)))
+		builder.WriteString(fmt.Sprintf("%02X", v))
 		if i < nSize-1 {
-			builder.WriteString(",")
+			builder.WriteString(" ")
 		}
 	}
 	return builder.String()

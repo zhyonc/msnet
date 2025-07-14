@@ -2,7 +2,7 @@ package msnet
 
 import (
 	"encoding/binary"
-	"strconv"
+	"fmt"
 	"strings"
 	"time"
 
@@ -174,9 +174,9 @@ func (p *oPacket) DumpString(nSize int) string {
 	var builder strings.Builder
 	for i := range nSize {
 		v := p.SendBuff[i]
-		builder.WriteString(strconv.Itoa(int(v)))
+		builder.WriteString(fmt.Sprintf("%02X", v))
 		if i < nSize-1 {
-			builder.WriteString(",")
+			builder.WriteString(" ")
 		}
 	}
 	return builder.String()

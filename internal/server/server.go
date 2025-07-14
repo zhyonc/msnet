@@ -1,6 +1,7 @@
 package server
 
 import (
+	"fmt"
 	"log/slog"
 	"net"
 
@@ -39,7 +40,7 @@ func (s *server) Run() {
 			continue
 		}
 		slog.Info("New client connected", "addr", conn.RemoteAddr())
-		cs := msnet.NewCClientSocket(conn, nil, nil, s)
+		cs := msnet.NewCClientSocket(s, conn, nil, nil)
 		go cs.OnRead()
 		cs.OnConnect()
 	}
@@ -50,7 +51,7 @@ func (s *server) Shutdown() {
 	s.lis = nil
 }
 
-// DebugInPacketLog implements msnet.CClientSocketImpl.
+// DebugInPacketLog implements msnet.CClientSocketDelegate.
 func (s *server) DebugInPacketLog(iPacket msnet.CInPacket) {
 	key := iPacket.GetType()
 	_, ok := opcode.NotLogCP[key]
@@ -59,7 +60,7 @@ func (s *server) DebugInPacketLog(iPacket msnet.CInPacket) {
 	}
 }
 
-// DebugOutPacketLog implements msnet.CClientSocketImpl.
+// DebugOutPacketLog implements msnet.CClientSocketDelegate.
 func (s *server) DebugOutPacketLog(oPacket msnet.COutPacket) {
 	key := oPacket.GetType()
 	_, ok := opcode.NotLogLP[key]
@@ -68,16 +69,16 @@ func (s *server) DebugOutPacketLog(oPacket msnet.COutPacket) {
 	}
 }
 
-// ProcessPacket implements msnet.CClientSocketImpl.
+// ProcessPacket implements msnet.CClientSocketDelegate.
 func (s *server) ProcessPacket(cs msnet.CClientSocket, iPacket msnet.CInPacket) {
 	op := iPacket.Decode2()
 	switch op {
 	default:
-		slog.Info("Unprocessed CInPacket", "opcode", op)
+		slog.Info("Unprocessed CInPacket", "opcode", fmt.Sprintf("0x%X", op))
 	}
 }
 
-// SocketClose implements msnet.CClientSocketImpl.
+// SocketClose implements msnet.CClientSocketDelegate.
 func (s *server) SocketClose() {
 	slog.Info("Socket closed")
 }
