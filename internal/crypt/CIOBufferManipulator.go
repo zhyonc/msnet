@@ -1,6 +1,6 @@
 package crypt
 
-// Shanda encryption is used for MSEA/GMS/EMS/BMS
+// Shanda encryption is used for CMS/MSEA/GMS/EMS/BMS
 
 type CIOBufferManipulator struct{}
 
@@ -8,7 +8,7 @@ func (static *CIOBufferManipulator) De(buf []byte) {
 	var j int32
 	var a, b, c byte
 
-	for i := byte(0); i < 3; i++ {
+	for range byte(3) {
 		a = 0
 		b = 0
 
@@ -46,7 +46,7 @@ func (static *CIOBufferManipulator) De(buf []byte) {
 func (static *CIOBufferManipulator) En(buf []byte) {
 	var j int32
 	var a, c byte
-	for i := byte(0); i < 3; i++ {
+	for range byte(3) {
 		a = 0
 
 		for j = int32(len(buf)); j > 0; j-- {

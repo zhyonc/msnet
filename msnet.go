@@ -3,7 +3,8 @@ package msnet
 import (
 	"time"
 
-	"github.com/zhyonc/msnet/internal/enum"
+	"github.com/zhyonc/msnet/enum"
+	"github.com/zhyonc/msnet/internal/crypt"
 
 	"golang.org/x/text/encoding"
 	"golang.org/x/text/encoding/simplifiedchinese"
@@ -35,6 +36,8 @@ func New(setting *Setting) {
 		langEncoder = encoding.Nop.NewEncoder()
 		langDecoder = encoding.Nop.NewDecoder()
 	}
+	// AESInitType
+	crypt.AESInitType = gSetting.AESInitType
 }
 
 type CClientSocket interface {
@@ -63,6 +66,7 @@ type CInPacket interface {
 	DecryptData(dwKey []byte)
 	GetType() int16
 	GetRemain() int
+	GetOffset() int
 	GetLength() int
 	DecodeBool() bool
 	Decode1() int8
@@ -81,6 +85,7 @@ type CInPacket interface {
 type COutPacket interface {
 	GetType() int16
 	GetSendBuffer() []byte
+	GetOffset() int
 	GetLength() int
 	EncodeBool(b bool)
 	Encode1(n int8)

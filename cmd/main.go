@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/zhyonc/msnet"
-	"github.com/zhyonc/msnet/internal/enum"
+	"github.com/zhyonc/msnet/enum"
 	"github.com/zhyonc/msnet/internal/server"
 )
 

@@ -3,6 +3,8 @@ package crypt
 import (
 	"crypto/aes"
 	"crypto/cipher"
+
+	"github.com/zhyonc/msnet/enum"
 )
 
 var (
@@ -23,6 +25,8 @@ var (
 		0x26, 0x1D, 0x09, 0x77, // 639437175
 		0x7C, 0x88, 0x53, 0x42, // 2089308994
 	}
+
+	AESInitType enum.AESInitType = enum.Default
 
 	CycleAESKeys = [20][32]byte{
 		0:  {0x29, 0x00, 0x00, 0x00, 0xE1, 0x00, 0x00, 0x00, 0x52, 0x00, 0x00, 0x00, 0xF1, 0x00, 0x00, 0x00, 0xB3, 0x00, 0x00, 0x00, 0x87, 0x00, 0x00, 0x00, 0x24, 0x00, 0x00, 0x00, 0x06, 0x00, 0x00, 0x00},
@@ -49,7 +53,7 @@ var (
 )
 
 type AES_ALG_INFO struct {
-	ChainVar []byte       // IV
+	ChainVar []byte       // 16 size IV
 	Block    cipher.Block // Use Block to generate RoundKey
 }
 
@@ -101,8 +105,22 @@ func RIJNDAEL_KeySchedule(userKey []byte, info *AES_ALG_INFO) {
 // void __cdecl CAESCipher::AES_EncInit(CAESCipher::AES_ALG_INFO *AlgInfo, unsigned int *pdwKey)
 func AES_Init(info *AES_ALG_INFO, pdwKey []byte) {
 	if len(pdwKey) > 0 {
-		for i := range 4 {
-			copy(info.ChainVar[4*i:], pdwKey[:])
+		switch AESInitType {
+		case enum.Default:
+			for i := range 4 {
+				copy(info.ChainVar[4*i:], pdwKey[:])
+			}
+		case enum.Duplicate:
+			for i := range info.ChainVar {
+				info.ChainVar[i] = pdwKey[0]
+			}
+		case enum.Shuffle:
+			tempKey := make([]byte, 4)
+			copy(tempKey, pdwKey)
+			for i := range 4 {
+				(*CIGCipher).Shuffle(nil, tempKey, bShuffle[i])
+				copy(info.ChainVar[4*i:], tempKey)
+			}
 		}
 	} else {
 		// The default key is rarely used so i didn't test it

@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/zhyonc/msnet/enum"
 	"github.com/zhyonc/msnet/internal/crypt"
-	"github.com/zhyonc/msnet/internal/enum"
 
 	"strings"
 	"time"
@@ -67,6 +67,11 @@ func (p *iPacket) GetType() int16 {
 // GetRemain implements CInPacket.
 func (p *iPacket) GetRemain() int {
 	return p.Length - p.Offset
+}
+
+// GetOffset implements CInPacket.
+func (p *iPacket) GetOffset() int {
+	return p.Offset
 }
 
 // GetLength implements CInPacket.

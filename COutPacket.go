@@ -6,12 +6,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/zhyonc/msnet/enum"
 	"github.com/zhyonc/msnet/internal/crypt"
-	"github.com/zhyonc/msnet/internal/enum"
 )
 
 type oPacket struct {
 	SendBuff            []byte
+	Offset              int
 	IsEncryptedByShanda bool
 }
 
@@ -24,12 +25,26 @@ func NewCOutPacket(nType int16) COutPacket {
 	return p
 }
 
+func NewCOutPacketInitByte(nType int8) COutPacket {
+	p := &oPacket{
+		SendBuff:            make([]byte, 0),
+		IsEncryptedByShanda: false,
+	}
+	p.Encode1(nType)
+	return p
+}
+
 // GetType implements COutPacket
 func (p *oPacket) GetType() int16 {
 	if len(p.SendBuff) >= 2 {
 		return int16(p.SendBuff[0]) | int16(p.SendBuff[1])<<8
 	}
 	return 0
+}
+
+// GetOffset implements COutPacket.
+func (p *oPacket) GetOffset() int {
+	return p.Offset
 }
 
 // GetLength implements COutPacket.
@@ -49,16 +64,19 @@ func (p *oPacket) EncodeBool(b bool) {
 		n = 1
 	}
 	p.SendBuff = append(p.SendBuff, n)
+	p.Offset++
 }
 
 // Encode1 implements COutPacket
 func (p *oPacket) Encode1(n int8) {
 	p.SendBuff = append(p.SendBuff, byte(n))
+	p.Offset++
 }
 
 // Encode2 implements COutPacket
 func (p *oPacket) Encode2(n int16) {
 	p.SendBuff = append(p.SendBuff, byte(n), byte(n>>8))
+	p.Offset += 2
 }
 
 // Encode4 implements COutPacket
@@ -68,6 +86,7 @@ func (p *oPacket) Encode4(n int32) {
 		buf[i] = byte(n >> (i * 8))
 	}
 	p.SendBuff = append(p.SendBuff, buf...)
+	p.Offset += 4
 }
 
 // Encode8 implements COutPacket
@@ -77,6 +96,7 @@ func (p *oPacket) Encode8(n int64) {
 		buf[i] = byte(n >> (i * 8))
 	}
 	p.SendBuff = append(p.SendBuff, buf...)
+	p.Offset += 8
 }
 
 // EncodeFT implements COutPacket
@@ -97,8 +117,10 @@ func (p *oPacket) EncodeFT(t time.Time) {
 // EncodeStr implements COutPacket
 func (p *oPacket) EncodeStr(s string) {
 	buf := []byte(s) // ASCII Code
-	p.Encode2(int16(len(buf)))
+	bufLen := len(buf)
+	p.Encode2(int16(bufLen))
 	p.SendBuff = append(p.SendBuff, buf...)
+	p.Offset += bufLen
 }
 
 // EncodeLocalStr implements COutPacket
@@ -112,15 +134,18 @@ func (p *oPacket) EncodeLocalStr(s string) {
 func (p *oPacket) EncodeLocalName(s string) {
 	localeBuf := make([]byte, 13)
 	buf := GetLangBuf(s)
-	if len(buf) > 0 {
+	bufLen := len(buf)
+	if bufLen > 0 {
 		copy(localeBuf, buf)
 	}
 	p.EncodeBuffer(localeBuf)
+	p.Offset += bufLen
 }
 
 // EncodeBuffer implements COutPacket
 func (p *oPacket) EncodeBuffer(buf []byte) {
 	p.SendBuff = append(p.SendBuff, buf...)
+	p.Offset += len(buf)
 }
 
 // MakeBufferList implements COutPacket

@@ -6,6 +6,7 @@ import (
 
 // Reselect IV key each time for sending or receiving packets
 var (
+	// CIGCipher::bShuffle
 	bShuffle = [...]byte{
 		0xEC, 0x3F, 0x77, 0xA4, 0x45, 0xD0, 0x71, 0xBF, 0xB7, 0x98, 0x20, 0xFC, 0x4B, 0xE9, 0xB3, 0xE1,
 		0x5C, 0x22, 0xF7, 0x0C, 0x44, 0x1B, 0x81, 0xBD, 0x63, 0x8D, 0xD4, 0xC3, 0xF2, 0x10, 0x19, 0xE0,
@@ -29,27 +30,28 @@ var (
 type CIGCipher struct{}
 
 // unsigned int __cdecl CIGCipher::innoHash(unsigned __int8 *pSrc, int nLen, unsigned int *pdwKey)
-func (static *CIGCipher) InnoHash(pSrc []byte) {
-	if len(pSrc) < 4 {
+func (static *CIGCipher) InnoHash(pdwKey []byte) {
+	if len(pdwKey) < 4 {
 		return
 	}
 	// pdwkey always set 0 to use the dwDefaultKey
 	dwDefaultKey := []byte{0xF2, 0x53, 0x50, 0xC6} // -967814158(LittleEndian)
-	// Shuffle
 	for i := range 4 {
-		srcKey := pSrc[i]
-
-		dwDefaultKey[0] += bShuffle[dwDefaultKey[1]] - srcKey
-		dwDefaultKey[1] -= dwDefaultKey[2] ^ bShuffle[srcKey]
-		dwDefaultKey[2] ^= srcKey + bShuffle[dwDefaultKey[3]]
-		dwDefaultKey[3] -= dwDefaultKey[0] - bShuffle[srcKey]
-
-		value := binary.LittleEndian.Uint32(dwDefaultKey)
-		rValue := ROL4(value, 3)
-		binary.LittleEndian.PutUint32(dwDefaultKey, rValue)
+		inputKey := pdwKey[i]
+		(*CIGCipher).Shuffle(nil, dwDefaultKey, inputKey)
 	}
 
-	copy(pSrc, dwDefaultKey)
+	copy(pdwKey, dwDefaultKey)
+}
+
+func (static *CIGCipher) Shuffle(pdwKey []byte, inputKey byte) {
+	pdwKey[0] += bShuffle[pdwKey[1]] - inputKey
+	pdwKey[1] -= pdwKey[2] ^ bShuffle[inputKey]
+	pdwKey[2] ^= inputKey + bShuffle[pdwKey[3]]
+	pdwKey[3] -= pdwKey[0] - bShuffle[inputKey]
+	value := binary.LittleEndian.Uint32(pdwKey)
+	rValue := ROL4(value, 3)
+	binary.LittleEndian.PutUint32(pdwKey, rValue)
 }
 
 func ROL4(value uint32, shift uint32) uint32 {

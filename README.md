@@ -13,6 +13,7 @@ import (
 	"net"
 
 	"github.com/zhyonc/msnet"
+	"github.com/zhyonc/msnet/enum"
 )
 
 type server struct {
@@ -46,7 +47,7 @@ func (s *server) Run() {
 			continue
 		}
 		slog.Info("New client connected", "addr", conn.RemoteAddr())
-		cs := msnet.NewCClientSocket(conn, nil, nil, s)
+		cs := msnet.NewCClientSocket(s, conn, nil, nil)
 		go cs.OnRead()
 		cs.OnConnect()
 	}
@@ -59,7 +60,7 @@ func (s *server) Shutdown() {
 
 func main() {
 	msnet.New(&msnet.Setting{
-		MSRegion: 8,
+		MSRegion: enum.GMS,
 		MSVersion: 95,
 		MSMinorVersion: "1",
 	})
@@ -74,12 +75,19 @@ func main() {
 - MSMinorVersion: MapleStory Client Minor Version
 - RecvXOR: The server must use the same XOR key to recover the original packet
 - SendXOR: The client must use the same XOR key to recover the original packet
+
 - IsCycleAESKey: 
 	- Default is false, `old AES key` will be used, which is compatible with most earlier versions
 	- If set true, `cycle AES key` will be used, which is compatible with newer versions
+
 - CustomAESKey(optional): It's used to instead of `old AES key` and `cycle AES key`
 	- Decrypt: A 32-byte array used for decrypting data in CInPacket::DecryptData
 	- Encrypt: A 32-byte array used for encrypting data in COutPacket::MakeBufferList
+
+- AESInitType(optional): Compatible with older versions based on [tutorial](https://forum.ragezone.com/threads/maple-aes-encrypt-impl-before-about-2008-client-with-explain-ida-pseudocode.1230984/)
+	- Default: Used in versions after about 2008
+	- Duplicate: Used in versions about 2005~2007 (`excluding TMS`)
+	- Shuffle: Used in TMS versions about 2005~2007
 ## Packet
 |Header|AESOFB|Note|
 |:---:|:---:|:---:|
