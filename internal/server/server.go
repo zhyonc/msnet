@@ -29,6 +29,7 @@ func (s *server) Run() {
 	}
 	slog.Info("TCPListener is starting on " + s.addr)
 	s.lis = lis
+	var idCount int32 = 0
 	for {
 		if s.lis == nil {
 			slog.Warn("TCPListener is nil")
@@ -43,6 +44,8 @@ func (s *server) Run() {
 		cs := msnet.NewCClientSocket(s, conn, nil, nil)
 		go cs.OnRead()
 		cs.OnConnect()
+		cs.SetID(idCount)
+		idCount++
 	}
 }
 
@@ -52,20 +55,20 @@ func (s *server) Shutdown() {
 }
 
 // DebugInPacketLog implements msnet.CClientSocketDelegate.
-func (s *server) DebugInPacketLog(iPacket msnet.CInPacket) {
+func (s *server) DebugInPacketLog(id int32, iPacket msnet.CInPacket) {
 	key := iPacket.GetType()
 	_, ok := opcode.NotLogCP[key]
 	if !ok {
-		slog.Info("[CInPacket]", "length", iPacket.GetLength(), "opcode", opcode.CPMap[key], "data", iPacket.DumpString(-1))
+		slog.Info("[CInPacket]", "id", id, "length", iPacket.GetLength(), "opcode", opcode.CPMap[key], "data", iPacket.DumpString(-1))
 	}
 }
 
 // DebugOutPacketLog implements msnet.CClientSocketDelegate.
-func (s *server) DebugOutPacketLog(oPacket msnet.COutPacket) {
+func (s *server) DebugOutPacketLog(id int32, oPacket msnet.COutPacket) {
 	key := oPacket.GetType()
 	_, ok := opcode.NotLogLP[key]
 	if !ok {
-		slog.Info("[COutPacket]", "length", oPacket.GetLength(), "opcode", opcode.LPMap[key], "data", oPacket.DumpString(-1))
+		slog.Info("[COutPacket]", "id", id, "length", oPacket.GetLength(), "opcode", opcode.LPMap[key], "data", oPacket.DumpString(-1))
 	}
 }
 
@@ -79,6 +82,6 @@ func (s *server) ProcessPacket(cs msnet.CClientSocket, iPacket msnet.CInPacket) 
 }
 
 // SocketClose implements msnet.CClientSocketDelegate.
-func (s *server) SocketClose() {
-	slog.Info("Socket closed")
+func (s *server) SocketClose(id int32) {
+	slog.Info("Socket closed", "id", id)
 }

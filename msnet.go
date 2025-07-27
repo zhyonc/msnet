@@ -41,30 +41,33 @@ func New(setting *Setting) {
 }
 
 type CClientSocket interface {
-	OnMigrateCommand(LP_MigrateCommand int16, ip string, port int16)
-	OnConnect()
-	Flush()
-	OnAliveReq(LP_AliveReq int16)
+	SetID(id int32)
+	GetID() int32
+	GetAddr() string
 	XORRecv(buf []byte)
 	XORSend(buf []byte)
 	OnRead()
+	OnConnect()
+	OnAliveReq(LP_AliveReq uint16)
+	OnMigrateCommand(LP_MigrateCommand uint16, ip string, port int16)
 	SendPacket(oPacket COutPacket)
+	Flush()
 	OnError(err error)
 	Close()
-	GetAddr() string
 }
 
 type CClientSocketDelegate interface {
-	DebugInPacketLog(iPacket CInPacket)
-	DebugOutPacketLog(oPacket COutPacket)
+	DebugInPacketLog(id int32, iPacket CInPacket)
+	DebugOutPacketLog(id int32, oPacket COutPacket)
 	ProcessPacket(cs CClientSocket, iPacket CInPacket)
-	SocketClose()
+	SocketClose(id int32)
 }
 
 type CInPacket interface {
 	AppendBuffer(pBuff []byte, bEnc bool)
 	DecryptData(dwKey []byte)
-	GetType() int16
+	GetType() uint16
+	GetTypeByte() uint8
 	GetRemain() int
 	GetOffset() int
 	GetLength() int
@@ -83,7 +86,8 @@ type CInPacket interface {
 }
 
 type COutPacket interface {
-	GetType() int16
+	GetType() uint16
+	GetTypeByte() uint8
 	GetSendBuffer() []byte
 	GetOffset() int
 	GetLength() int

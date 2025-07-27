@@ -34,7 +34,7 @@ func (p *iPacket) AppendBuffer(pBuff []byte, bEnc bool) {
 	p.Offset = 0
 	p.RawSeq = uint16(p.Decode2())
 	temp := uint16(p.Decode2())
-	if bEnc {
+	if !gSetting.IsXORCipher && bEnc {
 		temp ^= p.RawSeq
 	}
 	p.DataLen = int(temp)
@@ -46,6 +46,12 @@ func (p *iPacket) DecryptData(dwKey []byte) {
 		slog.Warn("Invalid data length")
 		return
 	}
+
+	if gSetting.IsXORCipher {
+		(*crypt.XORCipher).Decrypt(nil, p.RecvBuff, dwKey)
+		return
+	}
+
 	if gSetting.IsCycleAESKey {
 		(*crypt.CAESCipher).Decrypt(nil, crypt.CycleAESKeys[gSetting.MSVersion%20], p.RecvBuff, dwKey)
 	} else {
@@ -57,9 +63,17 @@ func (p *iPacket) DecryptData(dwKey []byte) {
 }
 
 // GetType implements CInPacket.
-func (p *iPacket) GetType() int16 {
+func (p *iPacket) GetType() uint16 {
 	if len(p.RecvBuff) >= 2 {
-		return int16(p.RecvBuff[0]) | int16(p.RecvBuff[1])<<8
+		return uint16(p.RecvBuff[0]) | uint16(p.RecvBuff[1])<<8
+	}
+	return 0
+}
+
+// GetTypeByte implements CInPacket.
+func (p *iPacket) GetTypeByte() uint8 {
+	if len(p.RecvBuff) >= 1 {
+		return uint8(p.RecvBuff[0])
 	}
 	return 0
 }

@@ -16,28 +16,36 @@ type oPacket struct {
 	IsEncryptedByShanda bool
 }
 
-func NewCOutPacket(nType int16) COutPacket {
+func NewCOutPacket(nType uint16) COutPacket {
 	p := &oPacket{
 		SendBuff:            make([]byte, 0),
 		IsEncryptedByShanda: false,
 	}
-	p.Encode2(nType)
+	p.Encode2(int16(nType))
 	return p
 }
 
-func NewCOutPacketInitByte(nType int8) COutPacket {
+func NewCOutPacketByte(nType uint8) COutPacket {
 	p := &oPacket{
 		SendBuff:            make([]byte, 0),
 		IsEncryptedByShanda: false,
 	}
-	p.Encode1(nType)
+	p.Encode1(int8(nType))
 	return p
 }
 
 // GetType implements COutPacket
-func (p *oPacket) GetType() int16 {
+func (p *oPacket) GetType() uint16 {
 	if len(p.SendBuff) >= 2 {
-		return int16(p.SendBuff[0]) | int16(p.SendBuff[1])<<8
+		return uint16(p.SendBuff[0]) | uint16(p.SendBuff[1])<<8
+	}
+	return 0
+}
+
+// GetTypeByte implements COutPacket.
+func (p *oPacket) GetTypeByte() uint8 {
+	if len(p.SendBuff) >= 1 {
+		return uint8(p.SendBuff[0])
 	}
 	return 0
 }
@@ -156,29 +164,41 @@ func (p *oPacket) MakeBufferList(uSeqBase uint16, bEnc bool, dwKey []byte) []byt
 	if bEnc {
 		bufferList = make([]byte, headerLen+dataLen)
 		copy(bufferList[headerLen:], p.SendBuff)
-		// Encrypt packet header
-		uSeqBaseN := ^uSeqBase
-		HIWORD := binary.LittleEndian.Uint16(dwKey[2:4])
-		uRawSeq := HIWORD ^ uSeqBaseN
-		dataLen ^= uRawSeq
-		// Put encrypted header into buffer list
-		binary.LittleEndian.PutUint16(bufferList, uRawSeq)
-		binary.LittleEndian.PutUint16(bufferList[2:4], dataLen)
-		// IsEncryptedByShanda
-		if gSetting.MSRegion > enum.TMS || (gSetting.MSRegion == enum.CMS && gSetting.MSVersion < 86) {
-			(*crypt.CIOBufferManipulator).En(nil, bufferList[headerLen:])
-			p.IsEncryptedByShanda = true
-		}
-		var aesKey [32]byte
-		if gSetting.IsCycleAESKey {
-			aesKey = crypt.CycleAESKeys[uSeqBase%20]
+		if gSetting.IsXORCipher {
+			// Encrypt packet header
+			uSeqBaseN := ^uSeqBase
+			HIWORD := binary.LittleEndian.Uint16(dwKey[2:4])
+			uRawSeq := HIWORD ^ uSeqBaseN
+			// Put encrypted header into buffer list
+			binary.LittleEndian.PutUint16(bufferList, uRawSeq)
+			binary.LittleEndian.PutUint16(bufferList[2:4], dataLen)
+			// Encrypt packet data
+			(*crypt.XORCipher).Encrypt(nil, bufferList[headerLength:], dwKey)
 		} else {
-			aesKey = gSetting.AESKeyEncrypt
-		}
-		// Encrypt packet data
-		for i := 4; i < len(bufferList); i += maxDataLength {
-			end := min(i+maxDataLength, len(bufferList))
-			(*crypt.CAESCipher).Encrypt(nil, aesKey, bufferList[i:end], dwKey)
+			// Encrypt packet header
+			uSeqBaseN := ^uSeqBase
+			HIWORD := binary.LittleEndian.Uint16(dwKey[2:4])
+			uRawSeq := HIWORD ^ uSeqBaseN
+			dataLen ^= uRawSeq
+			// Put encrypted header into buffer list
+			binary.LittleEndian.PutUint16(bufferList, uRawSeq)
+			binary.LittleEndian.PutUint16(bufferList[2:4], dataLen)
+			// IsEncryptedByShanda
+			if gSetting.MSRegion > enum.TMS || (gSetting.MSRegion == enum.CMS && gSetting.MSVersion < 86) {
+				(*crypt.CIOBufferManipulator).En(nil, bufferList[headerLen:])
+				p.IsEncryptedByShanda = true
+			}
+			var aesKey [32]byte
+			if gSetting.IsCycleAESKey {
+				aesKey = crypt.CycleAESKeys[uSeqBase%20]
+			} else {
+				aesKey = gSetting.AESKeyEncrypt
+			}
+			// Encrypt packet data
+			for i := 4; i < len(bufferList); i += maxDataLength {
+				end := min(i+maxDataLength, len(bufferList))
+				(*crypt.CAESCipher).Encrypt(nil, aesKey, bufferList[i:end], dwKey)
+			}
 		}
 	} else {
 		// Encode packet header for CClientSocket::OnConnect

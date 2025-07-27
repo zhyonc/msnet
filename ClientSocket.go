@@ -11,6 +11,7 @@ import (
 )
 
 type clientSocket struct {
+	id         int32
 	delegate   CClientSocketDelegate
 	sock       net.Conn
 	addr       net.Addr
@@ -44,46 +45,19 @@ func NewCClientSocket(delegate CClientSocketDelegate, conn net.Conn, rcvIV []byt
 	return c
 }
 
-// OnMigrateCommand implements CClientSocket.
-func (c *clientSocket) OnMigrateCommand(LP_MigrateCommand int16, ip string, port int16) {
-	oPacket := NewCOutPacket(LP_MigrateCommand)
-	oPacket.EncodeBool(true)
-	ipBytes := net.ParseIP(ip)
-	if ipBytes == nil {
-		slog.Warn("Invaild ip on migrate command", "ip", ip)
-		oPacket.EncodeBuffer([]byte{127, 0, 0, 1})
-	} else {
-		oPacket.EncodeBuffer(ipBytes.To4())
-	}
-	oPacket.Encode2(port)
-	c.SendPacket(oPacket)
+// SetID implements CClientSocket.
+func (c *clientSocket) SetID(id int32) {
+	c.id = id
 }
 
-// OnConnect implements CClientSocket.
-func (c *clientSocket) OnConnect() {
-	oPacket := NewCOutPacket(0)
-	oPacket.EncodeStr(gSetting.MSMinorVersion)
-	oPacket.EncodeBuffer(c.seqRcv[:])
-	oPacket.EncodeBuffer(c.seqSnd[:])
-	oPacket.Encode1(int8(gSetting.MSRegion))
-	c.sendBuff = oPacket.MakeBufferList(gSetting.MSVersion, false, nil)
-	c.XORSend(c.sendBuff)
-	c.Flush()
+// GetID implements CClientSocket.
+func (c *clientSocket) GetID() int32 {
+	return c.id
 }
 
-// Flush implements CClientSocket.
-func (c *clientSocket) Flush() {
-	_, err := c.sock.Write(c.sendBuff)
-	if err != nil {
-		slog.Error("Failed to send packet to client", "err", err)
-		return
-	}
-}
-
-// OnAliveReq implements CClientSocket.
-func (c *clientSocket) OnAliveReq(LP_AliveReq int16) {
-	oPacket := NewCOutPacket(LP_AliveReq)
-	c.SendPacket(oPacket)
+// GetAddr implements CClientSocket.
+func (c *clientSocket) GetAddr() string {
+	return c.addr.String()
 }
 
 // XORRecv implements CClientSocket.
@@ -134,9 +108,14 @@ func (c *clientSocket) OnRead() {
 		} else {
 			// Decode packet data
 			iPacket := NewCInPacket(c.recvBuff)
-			iPacket.DecryptData(c.seqRcv[:])              // Decrypt using AES OFB mode
-			(*crypt.CIGCipher).InnoHash(nil, c.seqRcv[:]) // Refresh m_uSeqRcv value
-			c.delegate.DebugInPacketLog(iPacket)
+			iPacket.DecryptData(c.seqRcv[:]) // Decrypt using AES OFB mode
+			// Refresh m_uSeqRcv value
+			if gSetting.IsXORCipher {
+				(*crypt.XORCipher).Shuffle(nil, c.seqRcv[:])
+			} else {
+				(*crypt.CIGCipher).InnoHash(nil, c.seqRcv[:])
+			}
+			c.delegate.DebugInPacketLog(c.id, iPacket)
 			c.delegate.ProcessPacket(c, iPacket)
 			readSize = headerLength
 		}
@@ -144,13 +123,70 @@ func (c *clientSocket) OnRead() {
 	}
 }
 
-// SendPacket implements CClientSocket.
-func (c *clientSocket) SendPacket(oPacket COutPacket) {
-	c.delegate.DebugOutPacketLog(oPacket)
-	c.sendBuff = oPacket.MakeBufferList(gSetting.MSVersion, true, c.seqSnd[:])
-	(*crypt.CIGCipher).InnoHash(nil, c.seqSnd[:]) // Refresh SeqSnd value
+// OnConnect implements CClientSocket.
+func (c *clientSocket) OnConnect() {
+	oPacket := NewCOutPacket(0)
+	oPacket.EncodeStr(gSetting.MSMinorVersion)
+	oPacket.EncodeBuffer(c.seqRcv[:])
+	oPacket.EncodeBuffer(c.seqSnd[:])
+	oPacket.Encode1(int8(gSetting.MSRegion))
+	c.sendBuff = oPacket.MakeBufferList(gSetting.MSVersion, false, nil)
 	c.XORSend(c.sendBuff)
 	c.Flush()
+}
+
+// OnAliveReq implements CClientSocket.
+func (c *clientSocket) OnAliveReq(LP_AliveReq uint16) {
+	var oPacket COutPacket
+	if gSetting.IsXORCipher {
+		oPacket = NewCOutPacketByte(uint8(LP_AliveReq))
+	} else {
+		oPacket = NewCOutPacket(LP_AliveReq)
+	}
+	c.SendPacket(oPacket)
+}
+
+// OnMigrateCommand implements CClientSocket.
+func (c *clientSocket) OnMigrateCommand(LP_MigrateCommand uint16, ip string, port int16) {
+	var oPacket COutPacket
+	if gSetting.IsXORCipher {
+		oPacket = NewCOutPacketByte(uint8(LP_MigrateCommand))
+	} else {
+		oPacket = NewCOutPacket(LP_MigrateCommand)
+	}
+	oPacket.EncodeBool(true)
+	ipBytes := net.ParseIP(ip)
+	if ipBytes == nil {
+		slog.Warn("Invaild ip on migrate command", "ip", ip)
+		oPacket.EncodeBuffer([]byte{127, 0, 0, 1})
+	} else {
+		oPacket.EncodeBuffer(ipBytes.To4())
+	}
+	oPacket.Encode2(port)
+	c.SendPacket(oPacket)
+}
+
+// SendPacket implements CClientSocket.
+func (c *clientSocket) SendPacket(oPacket COutPacket) {
+	c.delegate.DebugOutPacketLog(c.id, oPacket)
+	c.sendBuff = oPacket.MakeBufferList(gSetting.MSVersion, true, c.seqSnd[:])
+	// Refresh SeqSnd value
+	if gSetting.IsXORCipher {
+		(*crypt.XORCipher).Shuffle(nil, c.seqSnd[:])
+	} else {
+		(*crypt.CIGCipher).InnoHash(nil, c.seqSnd[:])
+	}
+	c.XORSend(c.sendBuff)
+	c.Flush()
+}
+
+// Flush implements CClientSocket.
+func (c *clientSocket) Flush() {
+	_, err := c.sock.Write(c.sendBuff)
+	if err != nil {
+		slog.Error("Failed to send packet to client", "err", err)
+		return
+	}
 }
 
 // OnError implements CClientSocket.
@@ -162,13 +198,8 @@ func (c *clientSocket) OnError(err error) {
 // Close implements CClientSocket.
 func (c *clientSocket) Close() {
 	if c.delegate != nil {
-		c.delegate.SocketClose()
+		c.delegate.SocketClose(c.id)
 	}
 	c.sock.Close()
 	c = nil
-}
-
-// GetAddr implements CClientSocket.
-func (c *clientSocket) GetAddr() string {
-	return c.addr.String()
 }

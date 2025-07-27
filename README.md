@@ -75,7 +75,7 @@ func main() {
 - MSMinorVersion: MapleStory Client Minor Version
 - RecvXOR: The server must use the same XOR key to recover the original packet
 - SendXOR: The client must use the same XOR key to recover the original packet
-
+- IsXORCipher: Used in versions about 2004
 - IsCycleAESKey: 
 	- Default is false, `old AES key` will be used, which is compatible with most earlier versions
 	- If set true, `cycle AES key` will be used, which is compatible with newer versions

@@ -8,6 +8,7 @@ type Setting struct {
 	MSMinorVersion string
 	RecvXOR        uint8
 	SendXOR        uint8
+	IsXORCipher    bool
 	IsCycleAESKey  bool
 	AESKeyDecrypt  [32]byte
 	AESKeyEncrypt  [32]byte
