@@ -51,12 +51,15 @@ func (p *iPacket) DecryptData(dwKey []byte) {
 		(*crypt.XORCipher).Decrypt(nil, p.RecvBuff, dwKey)
 		return
 	}
-
+	// Switch AESKey
+	var aesKey [32]byte
 	if gSetting.IsCycleAESKey {
-		(*crypt.CAESCipher).Decrypt(nil, crypt.CycleAESKeys[gSetting.MSVersion%20], p.RecvBuff, dwKey)
+		aesKey = crypt.GetCycleAESKey(gSetting.MSRegion, gSetting.MSVersion)
 	} else {
-		(*crypt.CAESCipher).Decrypt(nil, gSetting.AESKeyDecrypt, p.RecvBuff, dwKey)
+		aesKey = gSetting.AESKeyDecrypt
 	}
+	// Decrypt packet data
+	(*crypt.CAESCipher).Decrypt(nil, aesKey, p.RecvBuff, dwKey)
 	if gSetting.MSRegion > enum.TMS || (gSetting.MSRegion == enum.CMS && gSetting.MSVersion < 86) {
 		(*crypt.CIOBufferManipulator).De(nil, p.RecvBuff)
 	}

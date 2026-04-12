@@ -6,6 +6,7 @@ import (
 	"net"
 
 	"github.com/zhyonc/msnet"
+	"github.com/zhyonc/msnet/enum"
 	"github.com/zhyonc/msnet/internal/opcode"
 )
 
@@ -54,7 +55,7 @@ func (s *server) Shutdown() {
 	s.lis = nil
 }
 
-// DebugInPacketLog implements msnet.CClientSocketDelegate.
+// DebugInPacketLog implements [msnet.CClientSocketDelegate].
 func (s *server) DebugInPacketLog(id int32, iPacket msnet.CInPacket) {
 	key := iPacket.GetType()
 	_, ok := opcode.NotLogCP[key]
@@ -63,7 +64,7 @@ func (s *server) DebugInPacketLog(id int32, iPacket msnet.CInPacket) {
 	}
 }
 
-// DebugOutPacketLog implements msnet.CClientSocketDelegate.
+// DebugOutPacketLog implements [msnet.CClientSocketDelegate].
 func (s *server) DebugOutPacketLog(id int32, oPacket msnet.COutPacket) {
 	key := oPacket.GetType()
 	_, ok := opcode.NotLogLP[key]
@@ -72,7 +73,17 @@ func (s *server) DebugOutPacketLog(id int32, oPacket msnet.COutPacket) {
 	}
 }
 
-// ProcessPacket implements msnet.CClientSocketDelegate.
+// NewConnectPacket implements [msnet.CClientSocketDelegate].
+func (s *server) NewConnectPacket(region enum.Region, version uint16, minorVersion string, seqRcv [4]byte, seqSnd [4]byte) msnet.COutPacket {
+	return nil
+}
+
+// NewHotfixPacket implements [msnet.CClientSocketDelegate].
+func (s *server) NewHotfixPacket() msnet.COutPacket {
+	return nil
+}
+
+// ProcessPacket implements [msnet.CClientSocketDelegate].
 func (s *server) ProcessPacket(cs msnet.CClientSocket, iPacket msnet.CInPacket) {
 	op := iPacket.Decode2()
 	switch op {
@@ -81,7 +92,7 @@ func (s *server) ProcessPacket(cs msnet.CClientSocket, iPacket msnet.CInPacket) 
 	}
 }
 
-// SocketClose implements msnet.CClientSocketDelegate.
+// SocketClose implements [msnet.CClientSocketDelegate].
 func (s *server) SocketClose(id int32) {
 	slog.Info("Socket closed", "id", id)
 }

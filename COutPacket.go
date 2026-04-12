@@ -157,7 +157,7 @@ func (p *oPacket) EncodeBuffer(buf []byte) {
 }
 
 // MakeBufferList implements COutPacket
-func (p *oPacket) MakeBufferList(uSeqBase uint16, bEnc bool, dwKey []byte) []byte {
+func (p *oPacket) MakeBufferList(bEnc bool, dwKey []byte) []byte {
 	headerLen := uint16(headerLength)
 	dataLen := uint16(len(p.SendBuff))
 	var bufferList []byte
@@ -166,7 +166,7 @@ func (p *oPacket) MakeBufferList(uSeqBase uint16, bEnc bool, dwKey []byte) []byt
 		copy(bufferList[headerLen:], p.SendBuff)
 		if gSetting.IsXORCipher {
 			// Encrypt packet header
-			uSeqBaseN := ^uSeqBase
+			uSeqBaseN := ^gSetting.MSVersion
 			HIWORD := binary.LittleEndian.Uint16(dwKey[2:4])
 			uRawSeq := HIWORD ^ uSeqBaseN
 			// Put encrypted header into buffer list
@@ -176,7 +176,7 @@ func (p *oPacket) MakeBufferList(uSeqBase uint16, bEnc bool, dwKey []byte) []byt
 			(*crypt.XORCipher).Encrypt(nil, bufferList[headerLength:], dwKey)
 		} else {
 			// Encrypt packet header
-			uSeqBaseN := ^uSeqBase
+			uSeqBaseN := ^gSetting.MSVersion
 			HIWORD := binary.LittleEndian.Uint16(dwKey[2:4])
 			uRawSeq := HIWORD ^ uSeqBaseN
 			dataLen ^= uRawSeq
@@ -188,9 +188,10 @@ func (p *oPacket) MakeBufferList(uSeqBase uint16, bEnc bool, dwKey []byte) []byt
 				(*crypt.CIOBufferManipulator).En(nil, bufferList[headerLen:])
 				p.IsEncryptedByShanda = true
 			}
+			// Switch AESKey
 			var aesKey [32]byte
 			if gSetting.IsCycleAESKey {
-				aesKey = crypt.CycleAESKeys[uSeqBase%20]
+				aesKey = crypt.GetCycleAESKey(gSetting.MSRegion, gSetting.MSVersion)
 			} else {
 				aesKey = gSetting.AESKeyEncrypt
 			}
@@ -204,7 +205,7 @@ func (p *oPacket) MakeBufferList(uSeqBase uint16, bEnc bool, dwKey []byte) []byt
 		// Encode packet header for CClientSocket::OnConnect
 		bufferList = make([]byte, headerLen+dataLen-2)
 		binary.LittleEndian.PutUint16(bufferList, dataLen)
-		binary.LittleEndian.PutUint16(bufferList[2:4], uSeqBase)
+		binary.LittleEndian.PutUint16(bufferList[2:4], gSetting.MSVersion)
 		copy(bufferList[headerLen:], p.SendBuff[2:])
 	}
 	return bufferList

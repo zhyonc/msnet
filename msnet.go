@@ -48,6 +48,7 @@ type CClientSocket interface {
 	XORSend(buf []byte)
 	OnRead()
 	OnConnect()
+	OnReceiveHotfix()
 	OnAliveReq(LP_AliveReq uint16)
 	OnMigrateCommand(LP_MigrateCommand uint16, ip string, port int16)
 	SendPacket(oPacket COutPacket)
@@ -59,6 +60,8 @@ type CClientSocket interface {
 type CClientSocketDelegate interface {
 	DebugInPacketLog(id int32, iPacket CInPacket)
 	DebugOutPacketLog(id int32, oPacket COutPacket)
+	NewConnectPacket(region enum.Region, version uint16, minorVersion string, seqRcv [4]byte, seqSnd [4]byte) COutPacket
+	NewHotfixPacket() COutPacket
 	ProcessPacket(cs CClientSocket, iPacket CInPacket)
 	SocketClose(id int32)
 }
@@ -101,6 +104,6 @@ type COutPacket interface {
 	EncodeLocalStr(s string)
 	EncodeLocalName(s string)
 	EncodeBuffer(buf []byte)
-	MakeBufferList(uSeqBase uint16, bEnc bool, dwKey []byte) []byte
+	MakeBufferList(bEnc bool, dwKey []byte) []byte
 	DumpString(nSize int) string
 }
