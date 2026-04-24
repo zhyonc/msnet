@@ -60,7 +60,7 @@ func (s *server) DebugInPacketLog(id int32, iPacket msnet.CInPacket) {
 	key := iPacket.GetType()
 	_, ok := opcode.NotLogCP[key]
 	if !ok {
-		slog.Info("[CInPacket]", "id", id, "length", iPacket.GetLength(), "opcode", opcode.CPMap[key], "data", iPacket.DumpString(-1))
+		slog.Info("[CInPacket]", "id", id, "opcode", opcode.CPMap[key], "length", iPacket.GetLength(), "data", iPacket.DumpString(-1))
 	}
 }
 
@@ -69,7 +69,7 @@ func (s *server) DebugOutPacketLog(id int32, oPacket msnet.COutPacket) {
 	key := oPacket.GetType()
 	_, ok := opcode.NotLogLP[key]
 	if !ok {
-		slog.Info("[COutPacket]", "id", id, "length", oPacket.GetLength(), "opcode", opcode.LPMap[key], "data", oPacket.DumpString(-1))
+		slog.Info("[COutPacket]", "id", id, "opcode", opcode.LPMap[key], "length", oPacket.GetLength(), "data", oPacket.DumpString(-1))
 	}
 }
 

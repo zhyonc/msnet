@@ -18,8 +18,7 @@ type oPacket struct {
 
 func NewCOutPacket(nType uint16) COutPacket {
 	p := &oPacket{
-		SendBuff:            make([]byte, 0),
-		IsEncryptedByShanda: false,
+		SendBuff: make([]byte, 0),
 	}
 	p.Encode2(int16(nType))
 	return p
@@ -27,10 +26,16 @@ func NewCOutPacket(nType uint16) COutPacket {
 
 func NewCOutPacketByte(nType uint8) COutPacket {
 	p := &oPacket{
-		SendBuff:            make([]byte, 0),
-		IsEncryptedByShanda: false,
+		SendBuff: make([]byte, 0),
 	}
 	p.Encode1(int8(nType))
+	return p
+}
+
+func NewCOutPacketBytes(bytes []byte) COutPacket {
+	p := &oPacket{
+		SendBuff: bytes,
+	}
 	return p
 }
 
@@ -196,9 +201,15 @@ func (p *oPacket) MakeBufferList(bEnc bool, dwKey []byte) []byte {
 				aesKey = gSetting.AESKeyEncrypt
 			}
 			// Encrypt packet data
-			for i := 4; i < len(bufferList); i += maxDataLength {
-				end := min(i+maxDataLength, len(bufferList))
-				(*crypt.CAESCipher).Encrypt(nil, aesKey, bufferList[i:end], dwKey)
+			bufferListLen := len(bufferList)
+			blockSize := headerLength + maxDataLength
+			// Encrypt First Block
+			firstEnd := min(bufferListLen, blockSize)
+			(*crypt.CAESCipher).Encrypt(nil, aesKey, bufferList[4:firstEnd], dwKey)
+			// Encrypt Remain Block
+			for i := firstEnd; i < bufferListLen; i += blockSize {
+				remainEnd := min(i+blockSize, bufferListLen)
+				(*crypt.CAESCipher).Encrypt(nil, aesKey, bufferList[i:remainEnd], dwKey)
 			}
 		}
 	} else {
