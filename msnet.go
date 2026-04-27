@@ -3,18 +3,12 @@ package msnet
 import (
 	"time"
 
-	"github.com/zhyonc/msnet/enum"
+	"github.com/zhyonc/msnet/def"
 	"github.com/zhyonc/msnet/internal/crypt"
 
 	"golang.org/x/text/encoding"
 	"golang.org/x/text/encoding/simplifiedchinese"
 	"golang.org/x/text/encoding/traditionalchinese"
-)
-
-const (
-	headerLength      int   = 4
-	maxDataLength     int   = 1456
-	fileTimeEpochDiff int64 = 116444736000000000 // FileTime epoch is January 1, 1601
 )
 
 var (
@@ -26,10 +20,10 @@ func New(setting *Setting) {
 	gSetting = setting
 	// Language coder
 	switch gSetting.MSRegion {
-	case enum.CMS:
+	case def.CMS:
 		langEncoder = simplifiedchinese.GBK.NewEncoder()
 		langDecoder = simplifiedchinese.GBK.NewDecoder()
-	case enum.TMS:
+	case def.TMS:
 		langEncoder = traditionalchinese.Big5.NewEncoder()
 		langDecoder = traditionalchinese.Big5.NewDecoder()
 	default:
@@ -48,10 +42,14 @@ type CClientSocket interface {
 	XORSend(buf []byte)
 	OnRead()
 	OnConnect()
-	OnReceiveHotfix()
+	OnReceiveHotfix(LP_ApplyHotfix uint16)
 	OnAliveReq(LP_AliveReq uint16)
 	OnMigrateCommand(LP_MigrateCommand uint16, ip string, port int16)
+	OnOpcodeEncryption(LP_OpcodeEncryption uint16, startOpcode uint16, endOpcode uint16, isSplit bool)
+	DecryptOpcode(randNum uint16) uint16
+	SetLinearCipher(toggle bool)
 	SendPacket(oPacket COutPacket)
+	Stepping(iv []byte)
 	Flush()
 	OnError(err error)
 	Close()
@@ -60,14 +58,14 @@ type CClientSocket interface {
 type CClientSocketDelegate interface {
 	DebugInPacketLog(id int32, iPacket CInPacket)
 	DebugOutPacketLog(id int32, oPacket COutPacket)
-	NewConnectPacket(region enum.Region, version uint16, minorVersion string, seqRcv [4]byte, seqSnd [4]byte) COutPacket
+	NewConnectPacket(region def.Region, version uint16, minorVersion string, seqRcv [4]byte, seqSnd [4]byte) COutPacket
 	NewHotfixPacket() COutPacket
 	ProcessPacket(cs CClientSocket, iPacket CInPacket)
 	SocketClose(id int32)
 }
 
 type CInPacket interface {
-	AppendBuffer(pBuff []byte, bEnc bool)
+	DecryptHeader(pBuff []byte)
 	DecryptData(dwKey []byte)
 	GetType() uint16
 	GetTypeByte() uint8
@@ -104,6 +102,7 @@ type COutPacket interface {
 	EncodeLocalStr(s string)
 	EncodeLocalName(s string)
 	EncodeBuffer(buf []byte)
-	MakeBufferList(bEnc bool, dwKey []byte) []byte
+	EncryptHeader(pBuff []byte, dataLen int, dwKey []byte)
+	MakeBufferList(cipherType def.CipherType, dwKey []byte) []byte
 	DumpString(nSize int) string
 }

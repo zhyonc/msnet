@@ -10,30 +10,23 @@ import (
 	"time"
 
 	"github.com/zhyonc/msnet"
-	"github.com/zhyonc/msnet/enum"
+	"github.com/zhyonc/msnet/def"
 	"github.com/zhyonc/msnet/internal/server"
-)
-
-const (
-	serverType   string     = "login"
-	serverAddr   string     = "127.0.0.1:8484"
-	logBackupDir string     = "./log"
-	logLevel     slog.Level = slog.LevelDebug
 )
 
 func main() {
 	// Installation
 	msnet.New(&msnet.Setting{
-		MSRegion:       enum.GMS,
+		MSRegion:       def.GMS,
 		MSVersion:      95,
 		MSMinorVersion: "1",
 	})
 	// Set logger
 	done := make(chan bool, 1)
-	logFilename := fmt.Sprintf("%s-server-%s.log", serverType, time.Now().Format("2006-01-02_15-04-05"))
-	msnet.SetLogger(logBackupDir, logFilename, logLevel, done)
+	logFilename := fmt.Sprintf("%s-server-%s.log", def.SERVER_TYPE, time.Now().Format("2006-01-02_15-04-05"))
+	msnet.SetLogger(def.LOG_BACKUP_DIR, logFilename, slog.LevelDebug, done)
 	// New Server
-	s := server.NewServer(serverAddr)
+	s := server.NewServer(def.SERVER_ADDR)
 	// Avoid unexpected exit
 	sch := make(chan os.Signal, 1)
 	signal.Notify(sch, syscall.SIGTERM, syscall.SIGINT)

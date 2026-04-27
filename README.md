@@ -13,7 +13,7 @@ import (
 	"net"
 
 	"github.com/zhyonc/msnet"
-	"github.com/zhyonc/msnet/enum"
+	"github.com/zhyonc/msnet/def"
 )
 
 type server struct {
@@ -36,6 +36,7 @@ func (s *server) Run() {
 	}
 	slog.Info("TCPListener is starting on " + s.addr)
 	s.lis = lis
+	var idCount int32 = 0
 	for {
 		if s.lis == nil {
 			slog.Warn("TCPListener is nil")
@@ -50,6 +51,8 @@ func (s *server) Run() {
 		cs := msnet.NewCClientSocket(s, conn, nil, nil)
 		go cs.OnRead()
 		cs.OnConnect()
+		cs.SetID(idCount)
+		idCount++
 	}
 }
 
@@ -60,8 +63,8 @@ func (s *server) Shutdown() {
 
 func main() {
 	msnet.New(&msnet.Setting{
-		MSRegion: enum.GMS,
-		MSVersion: 95,
+		MSRegion:       def.GMS,
+		MSVersion:      95,
 		MSMinorVersion: "1",
 	})
 	s := NewServer("127.0.0.1:8484")
@@ -70,24 +73,29 @@ func main() {
 
 ```
 ## Setting
-- MSRegion: MapleStory Regions including `KMS(1)`/`KMST(2)`/`JMS(3)`/`CMS(4)`/`TMS(6)`/`MSEA(7)`/`GMS(8)`/`BMS(9)`
+- MSRegion: MapleStory Regions including `GMSCW(1)/KMS(1)`/`KMST(2)`/`JMS(3)`/`CMS(4)`/`TMS(6)`/`MSEA(7)`/`GMS(8)`/`BMS(9)`
 - MSVersion: MapleStory Client Version
 - MSMinorVersion: MapleStory Client Minor Version
-- RecvXOR: The server must use the same XOR key to recover the original packet
-- SendXOR: The client must use the same XOR key to recover the original packet
-- IsXORCipher: Used in versions about 2004
-- IsCycleAESKey: 
+- CipherType: 
+	- AESCipher: Used for the majority of clients
+	- XORCipher: Used in versions about 2004
+	- LinearCipher: Used for GMS LP data since 2017 (excluding the login server)
+	- NullCipher: Used for connect packet
+- DESKey (optional): A 16-byte string used  for opcode encryption based on [v193-encryption](https://forum.ragezone.com/threads/v193-encryption.1147967/) and [opcode-encryption-fix](https://forum.ragezone.com/threads/deskey-list-impl-after-2023-opcode-encryption-fix-mapleshark.1231055/)
+- IsCycleAESKey (optional): 
 	- Default is false, `old AES key` will be used, which is compatible with most earlier versions
 	- If set true, `cycle AES key` will be used, which is compatible with newer versions
-
-- CustomAESKey(optional): It's used to instead of `old AES key` and `cycle AES key`
+- CustomAESKey (optional): It's used to instead of `old AES key` and `cycle AES key`
 	- Decrypt: A 32-byte array used for decrypting data in CInPacket::DecryptData
 	- Encrypt: A 32-byte array used for encrypting data in COutPacket::MakeBufferList
-
-- AESInitType(optional): Compatible with older versions based on [tutorial](https://forum.ragezone.com/threads/maple-aes-encrypt-impl-before-about-2008-client-with-explain-ida-pseudocode.1230984/)
+- RecvXOR (optional): The server must use the same XOR key to recover the original packet
+- SendXOR (optional): The client must use the same XOR key to recover the original packet
+- IsTypeHeader1Byte: Used in versions about 2004~2008
+- AESInitType (optional): Compatible with older versions based on [AES encrypt](https://forum.ragezone.com/threads/maple-aes-encrypt-impl-before-about-2008-client-with-explain-ida-pseudocode.1230984/)
 	- Default: Used in versions after about 2008
 	- Duplicate: Used in versions about 2005~2007 (`excluding TMS`)
 	- Shuffle: Used in TMS versions about 2005~2007
+
 ## Packet
 |Header|AESOFB|Note|
 |:---:|:---:|:---:|

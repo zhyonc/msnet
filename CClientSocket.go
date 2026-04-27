@@ -1,48 +1,64 @@
 package msnet
 
 import (
-	"crypto/rand"
+	crand "crypto/rand"
 	"encoding/binary"
 	"fmt"
 	"log/slog"
+	"math"
+	mrand "math/rand/v2"
 	"net"
+	"strings"
 
+	"github.com/zhyonc/msnet/def"
 	"github.com/zhyonc/msnet/internal/crypt"
 )
 
 type clientSocket struct {
-	id         int32
-	delegate   CClientSocketDelegate
-	sock       net.Conn
-	addr       net.Addr
-	recvBuff   []byte
-	sendBuff   []byte
-	packetRecv *iPacket
-	seqRcv     [4]byte
-	seqSnd     [4]byte
+	id             int32
+	delegate       CClientSocketDelegate
+	sock           net.Conn
+	addr           net.Addr
+	recvBuff       []byte
+	sendBuff       []byte
+	packetRecv     *iPacket
+	seqRcv         [4]byte
+	seqSnd         [4]byte
+	desCipher      *crypt.TripleDESCipher
+	CPMap          map[uint16]uint16
+	isLinearCipher bool
 }
 
 func NewCClientSocket(delegate CClientSocketDelegate, conn net.Conn, rcvIV []byte, sndIV []byte) CClientSocket {
 	if gSetting == nil {
-		panic("Please use msnet.New(setting) to install package")
+		panic("[CClientSocket] Please use msnet.New(setting) to install package")
 	}
-	c := &clientSocket{
+	cs := &clientSocket{
 		delegate:   delegate,
 		sock:       conn,
 		addr:       conn.RemoteAddr(),
 		packetRecv: &iPacket{},
 	}
+	// IV
 	if len(rcvIV) == 0 {
-		rand.Read(c.seqRcv[:])
+		crand.Read(cs.seqRcv[:])
 	} else {
-		c.seqRcv = [4]byte(rcvIV)
+		cs.seqRcv = [4]byte(rcvIV)
 	}
 	if len(sndIV) == 0 {
-		rand.Read(c.seqSnd[:])
+		crand.Read(cs.seqSnd[:])
 	} else {
-		c.seqSnd = [4]byte(sndIV)
+		cs.seqSnd = [4]byte(sndIV)
 	}
-	return c
+	// OpcodeEncryption
+	if gSetting.DESKey != "" {
+		desCipher, err := crypt.NewTripleDESCipher(gSetting.DESKey)
+		if err != nil {
+			panic(err)
+		}
+		cs.desCipher = desCipher
+	}
+	return cs
 }
 
 // SetID implements [CClientSocket].
@@ -84,7 +100,7 @@ func (cs *clientSocket) XORSend(buf []byte) {
 
 // OnRead implements [CClientSocket].
 func (cs *clientSocket) OnRead() {
-	readSize := headerLength
+	readSize := def.HEADER_LENGTH
 	isHeader := true
 	defer cs.Close()
 	for {
@@ -98,11 +114,11 @@ func (cs *clientSocket) OnRead() {
 		// CClientSocket::ManipulatePacket
 		if isHeader {
 			// Decode packet header
-			cs.packetRecv.AppendBuffer(cs.recvBuff, true)
+			cs.packetRecv.DecryptHeader(cs.recvBuff)
 			clientVersion := cs.packetRecv.RawSeq ^ binary.LittleEndian.Uint16(cs.seqRcv[2:4])
 			if clientVersion != gSetting.MSVersion {
 				if clientVersion == 223 {
-					// GMSCW
+					// GMSCW v1.0
 				} else {
 					cs.OnError(fmt.Errorf("failed to decode packet header"))
 					return
@@ -112,16 +128,11 @@ func (cs *clientSocket) OnRead() {
 		} else {
 			// Decode packet data
 			iPacket := NewCInPacket(cs.recvBuff)
-			iPacket.DecryptData(cs.seqRcv[:]) // Decrypt using AES OFB mode
-			// Refresh m_uSeqRcv value
-			if gSetting.IsXORCipher {
-				(*crypt.XORCipher).Shuffle(nil, cs.seqRcv[:])
-			} else {
-				(*crypt.CIGCipher).InnoHash(nil, cs.seqRcv[:])
-			}
+			iPacket.DecryptData(cs.seqRcv[:])
+			cs.Stepping(cs.seqRcv[:])
 			cs.delegate.DebugInPacketLog(cs.id, iPacket)
 			cs.delegate.ProcessPacket(cs, iPacket)
-			readSize = headerLength
+			readSize = def.HEADER_LENGTH
 		}
 		isHeader = !isHeader
 	}
@@ -131,22 +142,23 @@ func (cs *clientSocket) OnRead() {
 func (cs *clientSocket) OnConnect() {
 	oPacket := cs.delegate.NewConnectPacket(gSetting.MSRegion, gSetting.MSVersion, gSetting.MSMinorVersion, cs.seqRcv, cs.seqSnd)
 	if oPacket == nil {
-		oPacket = NewCOutPacket(0)
+		oPacket = NewCOutPacket()
 		oPacket.EncodeStr(gSetting.MSMinorVersion)
 		oPacket.EncodeBuffer(cs.seqRcv[:])
 		oPacket.EncodeBuffer(cs.seqSnd[:])
 		oPacket.Encode1(int8(gSetting.MSRegion))
 	}
-	cs.sendBuff = oPacket.MakeBufferList(false, nil)
+	cs.sendBuff = oPacket.MakeBufferList(def.NullCipher, nil)
 	cs.XORSend(cs.sendBuff)
 	cs.Flush()
 }
 
 // OnReceiveHotfix implements [CClientSocket].
-func (cs *clientSocket) OnReceiveHotfix() {
+func (cs *clientSocket) OnReceiveHotfix(LP_ApplyHotfix uint16) {
 	oPacket := cs.delegate.NewHotfixPacket()
 	if oPacket == nil {
-		return
+		oPacket = NewCOutPacket(LP_ApplyHotfix)
+		oPacket.Encode1(1)
 	}
 	cs.SendPacket(oPacket)
 }
@@ -154,8 +166,8 @@ func (cs *clientSocket) OnReceiveHotfix() {
 // OnAliveReq implements [CClientSocket].
 func (cs *clientSocket) OnAliveReq(LP_AliveReq uint16) {
 	var oPacket COutPacket
-	if gSetting.IsXORCipher {
-		oPacket = NewCOutPacketByte(uint8(LP_AliveReq))
+	if gSetting.IsTypeHeader1Byte {
+		oPacket = NewCOutPacket(uint8(LP_AliveReq))
 	} else {
 		oPacket = NewCOutPacket(LP_AliveReq)
 	}
@@ -165,15 +177,15 @@ func (cs *clientSocket) OnAliveReq(LP_AliveReq uint16) {
 // OnMigrateCommand implements [CClientSocket].
 func (cs *clientSocket) OnMigrateCommand(LP_MigrateCommand uint16, ip string, port int16) {
 	var oPacket COutPacket
-	if gSetting.IsXORCipher {
-		oPacket = NewCOutPacketByte(uint8(LP_MigrateCommand))
+	if gSetting.IsTypeHeader1Byte {
+		oPacket = NewCOutPacket(uint8(LP_MigrateCommand))
 	} else {
 		oPacket = NewCOutPacket(LP_MigrateCommand)
 	}
 	oPacket.EncodeBool(true)
 	ipBytes := net.ParseIP(ip)
 	if ipBytes == nil {
-		slog.Warn("Invaild ip on migrate command", "ip", ip)
+		slog.Warn("[CClientSocket] Invaild ip on migrate command", "ip", ip)
 		oPacket.EncodeBuffer([]byte{127, 0, 0, 1})
 	} else {
 		oPacket.EncodeBuffer(ipBytes.To4())
@@ -182,32 +194,104 @@ func (cs *clientSocket) OnMigrateCommand(LP_MigrateCommand uint16, ip string, po
 	cs.SendPacket(oPacket)
 }
 
+// OnOpcodeEncryption implements [CClientSocket].
+func (cs *clientSocket) OnOpcodeEncryption(LP_OpcodeEncryption uint16, startOpcode uint16, endOpcode uint16, isSplit bool) {
+	cs.CPMap = make(map[uint16]uint16)
+	var builder strings.Builder
+	if isSplit {
+		// Write opcodes range
+		fmt.Fprintf(&builder, "%04d", endOpcode-startOpcode+1)
+		builder.WriteRune('|')
+	}
+	// Convert opcode to rand num
+	max := int32(math.MaxUint16)
+	for op := startOpcode; op <= endOpcode; op++ {
+		// Bind rand num with opcode
+		min := int32(op)
+		var randNum uint16
+		for {
+			randNum = uint16(mrand.Int32N(max-min+1) + min)
+			if _, ok := cs.CPMap[randNum]; !ok {
+				break
+			}
+		}
+		cs.CPMap[randNum] = op
+		// Write rand num to replace opcode
+		fmt.Fprintf(&builder, "%04d", randNum)
+		if isSplit && op < endOpcode {
+			// Add separator symbol
+			builder.WriteRune('|')
+		}
+	}
+	// Using TripleDESCipher encrypt content
+	content := builder.String()
+	encryptedBuf, err := cs.desCipher.Encrypt(content)
+	if err != nil {
+		slog.Error("[CClientSocket] Failed to encrypt content using TripleDESCipher", "err", err)
+		return
+	}
+	oPacket := NewCOutPacket(LP_OpcodeEncryption)
+	if !isSplit {
+		oPacket.Encode4(cs.desCipher.GetBlockSize())
+	}
+	oPacket.Encode4(int32(len(encryptedBuf)))
+	oPacket.EncodeBuffer(encryptedBuf)
+	cs.SendPacket(oPacket)
+}
+
+// DecryptOpcode implements [CClientSocket].
+func (cs *clientSocket) DecryptOpcode(randNum uint16) uint16 {
+	op, ok := cs.CPMap[randNum]
+	if !ok {
+		return 0
+	}
+	return op
+}
+
+// SetLinearCipher implements [CClientSocket].
+func (cs *clientSocket) SetLinearCipher(toggle bool) {
+	cs.isLinearCipher = toggle
+}
+
 // SendPacket implements [CClientSocket].
 func (cs *clientSocket) SendPacket(oPacket COutPacket) {
 	cs.delegate.DebugOutPacketLog(cs.id, oPacket)
-	cs.sendBuff = oPacket.MakeBufferList(true, cs.seqSnd[:])
-	// Refresh SeqSnd value
-	if gSetting.IsXORCipher {
-		(*crypt.XORCipher).Shuffle(nil, cs.seqSnd[:])
+	if cs.isLinearCipher {
+		cs.sendBuff = oPacket.MakeBufferList(def.LinearCipher, cs.seqSnd[:])
 	} else {
-		(*crypt.CIGCipher).InnoHash(nil, cs.seqSnd[:])
+		cs.sendBuff = oPacket.MakeBufferList(gSetting.CipherType, cs.seqSnd[:])
 	}
+	cs.Stepping(cs.seqSnd[:])
 	cs.XORSend(cs.sendBuff)
 	cs.Flush()
+}
+
+// Stepping implements [CClientSocket].
+func (cs *clientSocket) Stepping(iv []byte) {
+	if iv == nil {
+		return
+	}
+	// Refresh SeqSnd value
+	switch gSetting.CipherType {
+	case def.XORCipher:
+		(*crypt.XORCipher).Shuffle(nil, iv)
+	case def.AESCipher, def.LinearCipher:
+		(*crypt.CIGCipher).InnoHash(nil, iv)
+	}
 }
 
 // Flush implements [CClientSocket].
 func (cs *clientSocket) Flush() {
 	_, err := cs.sock.Write(cs.sendBuff)
 	if err != nil {
-		slog.Error("Failed to send packet to client", "err", err)
+		slog.Error("[CClientSocket] Failed to send packet to client", "err", err)
 		return
 	}
 }
 
 // OnError implements [CClientSocket].
 func (cs *clientSocket) OnError(err error) {
-	slog.Error("[ClientSocket] OnError", "err", err)
+	slog.Error("[CClientSocket] OnError", "err", err)
 	cs.Close()
 }
 

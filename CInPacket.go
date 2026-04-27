@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/zhyonc/msnet/enum"
+	"github.com/zhyonc/msnet/def"
 	"github.com/zhyonc/msnet/internal/crypt"
 
 	"strings"
@@ -26,15 +26,17 @@ func NewCInPacket(buf []byte) CInPacket {
 	return p
 }
 
-// AppendBuffer implements CInPacket.
-func (p *iPacket) AppendBuffer(pBuff []byte, bEnc bool) {
+// CInPacket::AppendBuffer
+// DecryptHeader implements CInPacket.
+func (p *iPacket) DecryptHeader(pBuff []byte) {
 	// Decode packet length
 	p.RecvBuff = pBuff
 	p.Length = len(pBuff)
 	p.Offset = 0
 	p.RawSeq = uint16(p.Decode2())
 	temp := uint16(p.Decode2())
-	if !gSetting.IsXORCipher && bEnc {
+	if gSetting.CipherType != def.XORCipher {
+		// XORCipher didn't do this
 		temp ^= p.RawSeq
 	}
 	p.DataLen = int(temp)
@@ -42,27 +44,28 @@ func (p *iPacket) AppendBuffer(pBuff []byte, bEnc bool) {
 
 // DecryptData implements CInPacket.
 func (p *iPacket) DecryptData(dwKey []byte) {
-	if p.Length <= 0 && p.Length > maxDataLength {
+	if p.Length <= 0 && p.Length > def.MAX_DATA_LENGTH {
 		slog.Warn("Invalid data length")
 		return
 	}
-
-	if gSetting.IsXORCipher {
+	switch gSetting.CipherType {
+	case def.XORCipher:
 		(*crypt.XORCipher).Decrypt(nil, p.RecvBuff, dwKey)
-		return
+	case def.AESCipher:
+		// Switch AESKey
+		var aesKey [32]byte
+		if gSetting.IsCycleAESKey {
+			aesKey = crypt.GetCycleAESKey(gSetting.MSRegion, gSetting.MSVersion)
+		} else {
+			aesKey = gSetting.AESKeyDecrypt
+		}
+		// Decrypt packet data
+		(*crypt.CAESCipher).Decrypt(nil, aesKey, p.RecvBuff, dwKey)
+		if gSetting.MSRegion > def.TMS || (gSetting.MSRegion == def.CMS && gSetting.MSVersion < 86) {
+			(*crypt.CIOBufferManipulator).De(nil, p.RecvBuff)
+		}
 	}
-	// Switch AESKey
-	var aesKey [32]byte
-	if gSetting.IsCycleAESKey {
-		aesKey = crypt.GetCycleAESKey(gSetting.MSRegion, gSetting.MSVersion)
-	} else {
-		aesKey = gSetting.AESKeyDecrypt
-	}
-	// Decrypt packet data
-	(*crypt.CAESCipher).Decrypt(nil, aesKey, p.RecvBuff, dwKey)
-	if gSetting.MSRegion > enum.TMS || (gSetting.MSRegion == enum.CMS && gSetting.MSVersion < 86) {
-		(*crypt.CIOBufferManipulator).De(nil, p.RecvBuff)
-	}
+
 }
 
 // GetType implements CInPacket.
@@ -161,7 +164,7 @@ func (p *iPacket) DecodeFT() time.Time {
 	// Unix epoch is January 1, 1970
 	// Calculate the difference between the two in nanoseconds
 	ft := p.Decode8()
-	nano := (ft - fileTimeEpochDiff) * 100
+	nano := (ft - def.FT_EPOCH_DIFF) * 100
 	return time.Unix(0, nano)
 }
 
@@ -218,7 +221,7 @@ func (p *iPacket) DumpString(nSize int) string {
 	var builder strings.Builder
 	for i := range nSize {
 		v := p.RecvBuff[i]
-		builder.WriteString(fmt.Sprintf("%02X", v))
+		fmt.Fprintf(&builder, "%02X", v)
 		if i < nSize-1 {
 			builder.WriteString(" ")
 		}

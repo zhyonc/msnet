@@ -6,7 +6,7 @@ import (
 	"net"
 
 	"github.com/zhyonc/msnet"
-	"github.com/zhyonc/msnet/enum"
+	"github.com/zhyonc/msnet/def"
 	"github.com/zhyonc/msnet/internal/opcode"
 )
 
@@ -60,7 +60,12 @@ func (s *server) DebugInPacketLog(id int32, iPacket msnet.CInPacket) {
 	key := iPacket.GetType()
 	_, ok := opcode.NotLogCP[key]
 	if !ok {
-		slog.Info("[CInPacket]", "id", id, "opcode", opcode.CPMap[key], "length", iPacket.GetLength(), "data", iPacket.DumpString(-1))
+		tag, find := opcode.CPMap[key]
+		if find {
+			slog.Debug("[CInPacket]", "id", id, "opcode", tag, "length", iPacket.GetLength(), "data", iPacket.DumpString(-1))
+		} else {
+			slog.Debug("[CInPacket]", "id", id, "opcode", key, "length", iPacket.GetLength(), "data", iPacket.DumpString(-1))
+		}
 	}
 }
 
@@ -69,12 +74,17 @@ func (s *server) DebugOutPacketLog(id int32, oPacket msnet.COutPacket) {
 	key := oPacket.GetType()
 	_, ok := opcode.NotLogLP[key]
 	if !ok {
-		slog.Info("[COutPacket]", "id", id, "opcode", opcode.LPMap[key], "length", oPacket.GetLength(), "data", oPacket.DumpString(-1))
+		tag, find := opcode.LPMap[key]
+		if find {
+			slog.Debug("[COutPacket]", "id", id, "opcode", tag, "length", oPacket.GetLength(), "data", oPacket.DumpString(-1))
+		} else {
+			slog.Debug("[COutPacket]", "id", id, "opcode", key, "length", oPacket.GetLength(), "data", oPacket.DumpString(-1))
+		}
 	}
 }
 
 // NewConnectPacket implements [msnet.CClientSocketDelegate].
-func (s *server) NewConnectPacket(region enum.Region, version uint16, minorVersion string, seqRcv [4]byte, seqSnd [4]byte) msnet.COutPacket {
+func (s *server) NewConnectPacket(region def.Region, version uint16, minorVersion string, seqRcv [4]byte, seqSnd [4]byte) msnet.COutPacket {
 	return nil
 }
 
@@ -88,7 +98,7 @@ func (s *server) ProcessPacket(cs msnet.CClientSocket, iPacket msnet.CInPacket) 
 	op := iPacket.Decode2()
 	switch op {
 	default:
-		slog.Info("Unprocessed CInPacket", "opcode", fmt.Sprintf("0x%X", op))
+		slog.Warn("Unprocessed CInPacket", "opcode", fmt.Sprintf("0x%X", op))
 	}
 }
 

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/zhyonc/msnet/enum"
+	"github.com/zhyonc/msnet/def"
 	"github.com/zhyonc/msnet/internal/crypt"
 )
 
@@ -16,25 +16,31 @@ type oPacket struct {
 	IsEncryptedByShanda bool
 }
 
-func NewCOutPacket(nType uint16) COutPacket {
+func NewCOutPacket(nType ...any) COutPacket {
 	p := &oPacket{
 		SendBuff: make([]byte, 0),
 	}
-	p.Encode2(int16(nType))
-	return p
-}
-
-func NewCOutPacketByte(nType uint8) COutPacket {
-	p := &oPacket{
-		SendBuff: make([]byte, 0),
-	}
-	p.Encode1(int8(nType))
-	return p
-}
-
-func NewCOutPacketBytes(bytes []byte) COutPacket {
-	p := &oPacket{
-		SendBuff: bytes,
+	if len(nType) > 0 {
+		switch v := nType[0].(type) {
+		case uint8:
+			p.Encode1(int8(v))
+		case int8:
+			p.Encode1(v)
+		case uint16:
+			p.Encode2(int16(v))
+		case int16:
+			p.Encode2(v)
+		case int:
+			if gSetting.IsTypeHeader1Byte {
+				p.Encode1(int8(v))
+			} else {
+				p.Encode2(int16(v))
+			}
+		case []byte:
+			p.EncodeBuffer(v)
+		default:
+			panic(fmt.Sprintf("unsupported opcode type: %T", v))
+		}
 	}
 	return p
 }
@@ -123,7 +129,7 @@ func (p *oPacket) EncodeFT(t time.Time) {
 	// Convert from nanoseconds to 100-nanosecond intervals (the unit used by FileTime)
 	ft := nano / 100
 	// Add the difference between the Unix and FileTime epochs
-	ft += fileTimeEpochDiff
+	ft += def.FT_EPOCH_DIFF
 	p.Encode8(ft)
 }
 
@@ -161,63 +167,69 @@ func (p *oPacket) EncodeBuffer(buf []byte) {
 	p.Offset += len(buf)
 }
 
+// EncryptHeader implements [COutPacket].
+func (p *oPacket) EncryptHeader(pBuff []byte, dataLen int, dwKey []byte) {
+	uSeqBaseN := ^gSetting.MSVersion
+	HIWORD := binary.LittleEndian.Uint16(dwKey[2:4])
+	uRawSeq := HIWORD ^ uSeqBaseN
+	temp := uint16(dataLen)
+	if gSetting.CipherType != def.XORCipher {
+		// XORCipher didn't do this
+		temp ^= uRawSeq
+	}
+	binary.LittleEndian.PutUint16(pBuff, uRawSeq)
+	binary.LittleEndian.PutUint16(pBuff[2:4], temp)
+}
+
 // MakeBufferList implements COutPacket
-func (p *oPacket) MakeBufferList(bEnc bool, dwKey []byte) []byte {
-	headerLen := uint16(headerLength)
-	dataLen := uint16(len(p.SendBuff))
-	var bufferList []byte
-	if bEnc {
-		bufferList = make([]byte, headerLen+dataLen)
-		copy(bufferList[headerLen:], p.SendBuff)
-		if gSetting.IsXORCipher {
-			// Encrypt packet header
-			uSeqBaseN := ^gSetting.MSVersion
-			HIWORD := binary.LittleEndian.Uint16(dwKey[2:4])
-			uRawSeq := HIWORD ^ uSeqBaseN
-			// Put encrypted header into buffer list
-			binary.LittleEndian.PutUint16(bufferList, uRawSeq)
-			binary.LittleEndian.PutUint16(bufferList[2:4], dataLen)
-			// Encrypt packet data
-			(*crypt.XORCipher).Encrypt(nil, bufferList[headerLength:], dwKey)
-		} else {
-			// Encrypt packet header
-			uSeqBaseN := ^gSetting.MSVersion
-			HIWORD := binary.LittleEndian.Uint16(dwKey[2:4])
-			uRawSeq := HIWORD ^ uSeqBaseN
-			dataLen ^= uRawSeq
-			// Put encrypted header into buffer list
-			binary.LittleEndian.PutUint16(bufferList, uRawSeq)
-			binary.LittleEndian.PutUint16(bufferList[2:4], dataLen)
-			// IsEncryptedByShanda
-			if gSetting.MSRegion > enum.TMS || (gSetting.MSRegion == enum.CMS && gSetting.MSVersion < 86) {
-				(*crypt.CIOBufferManipulator).En(nil, bufferList[headerLen:])
-				p.IsEncryptedByShanda = true
-			}
-			// Switch AESKey
-			var aesKey [32]byte
-			if gSetting.IsCycleAESKey {
-				aesKey = crypt.GetCycleAESKey(gSetting.MSRegion, gSetting.MSVersion)
-			} else {
-				aesKey = gSetting.AESKeyEncrypt
-			}
-			// Encrypt packet data
-			bufferListLen := len(bufferList)
-			blockSize := headerLength + maxDataLength
-			// Encrypt First Block
-			firstEnd := min(bufferListLen, blockSize)
-			(*crypt.CAESCipher).Encrypt(nil, aesKey, bufferList[4:firstEnd], dwKey)
-			// Encrypt Remain Block
-			for i := firstEnd; i < bufferListLen; i += blockSize {
-				remainEnd := min(i+blockSize, bufferListLen)
-				(*crypt.CAESCipher).Encrypt(nil, aesKey, bufferList[i:remainEnd], dwKey)
-			}
+func (p *oPacket) MakeBufferList(cipherType def.CipherType, dwKey []byte) []byte {
+	dataLen := len(p.SendBuff)
+	bufferList := make([]byte, def.HEADER_LENGTH+dataLen)
+	copy(bufferList[def.HEADER_LENGTH:], p.SendBuff)
+	switch cipherType {
+	case def.AESCipher:
+		// Encrypt packet header
+		p.EncryptHeader(bufferList, dataLen, dwKey)
+		// IsEncryptedByShanda
+		if gSetting.MSRegion > def.TMS || (gSetting.MSRegion == def.CMS && gSetting.MSVersion < 86) {
+			(*crypt.CIOBufferManipulator).En(nil, bufferList[def.HEADER_LENGTH:])
+			p.IsEncryptedByShanda = true
 		}
-	} else {
+		// Switch AESKey
+		var aesKey [32]byte
+		if gSetting.IsCycleAESKey {
+			aesKey = crypt.GetCycleAESKey(gSetting.MSRegion, gSetting.MSVersion)
+		} else {
+			aesKey = gSetting.AESKeyEncrypt
+		}
+		// Encrypt packet data
+		bufferListLen := len(bufferList)
+		blockSize := def.HEADER_LENGTH + def.MAX_DATA_LENGTH
+		// Encrypt First Block
+		firstEnd := min(bufferListLen, blockSize)
+		(*crypt.CAESCipher).Encrypt(nil, aesKey, bufferList[4:firstEnd], dwKey)
+		// Encrypt Remain Block
+		for i := firstEnd; i < bufferListLen; i += blockSize {
+			remainEnd := min(i+blockSize, bufferListLen)
+			(*crypt.CAESCipher).Encrypt(nil, aesKey, bufferList[i:remainEnd], dwKey)
+		}
+	case def.XORCipher:
+		// Encrypt packet header
+		p.EncryptHeader(bufferList, dataLen, dwKey)
+		// Encrypt packet data
+		(*crypt.XORCipher).Encrypt(nil, bufferList[def.HEADER_LENGTH:], dwKey)
+	case def.LinearCipher:
+		// Encrypt packet header
+		p.EncryptHeader(bufferList, dataLen, dwKey)
+		// Encrypt packet data
+		key := dwKey[0]
+		for i := def.HEADER_LENGTH; i < len(bufferList); i++ {
+			bufferList[i] += key
+		}
+	case def.NullCipher:
 		// Encode packet header for CClientSocket::OnConnect
-		bufferList = make([]byte, headerLen+dataLen-2)
-		binary.LittleEndian.PutUint16(bufferList, dataLen)
+		binary.LittleEndian.PutUint16(bufferList, uint16(dataLen+2)) // +2 for MSVersion
 		binary.LittleEndian.PutUint16(bufferList[2:4], gSetting.MSVersion)
-		copy(bufferList[headerLen:], p.SendBuff[2:])
 	}
 	return bufferList
 }
@@ -231,7 +243,7 @@ func (p *oPacket) DumpString(nSize int) string {
 	var builder strings.Builder
 	for i := range nSize {
 		v := p.SendBuff[i]
-		builder.WriteString(fmt.Sprintf("%02X", v))
+		fmt.Fprintf(&builder, "%02X", v)
 		if i < nSize-1 {
 			builder.WriteString(" ")
 		}

@@ -4,7 +4,7 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 
-	"github.com/zhyonc/msnet/enum"
+	"github.com/zhyonc/msnet/def"
 )
 
 var (
@@ -26,7 +26,7 @@ var (
 		0x7C, 0x88, 0x53, 0x42, // 2089308994
 	}
 
-	AESInitType enum.AESInitType = enum.Default
+	AESInitType def.AESInitType = def.Default
 
 	cycleAESKeys = [20][32]byte{
 		0:  {0x29, 0x00, 0x00, 0x00, 0xE1, 0x00, 0x00, 0x00, 0x52, 0x00, 0x00, 0x00, 0xF1, 0x00, 0x00, 0x00, 0xB3, 0x00, 0x00, 0x00, 0x87, 0x00, 0x00, 0x00, 0x24, 0x00, 0x00, 0x00, 0x06, 0x00, 0x00, 0x00},
@@ -52,8 +52,8 @@ var (
 	}
 )
 
-func GetCycleAESKey(region enum.Region, version uint16) [32]byte {
-	if region == enum.KMS || region == enum.KMS && version >= 1112 || region == enum.JMS && version >= 380 {
+func GetCycleAESKey(region def.Region, version uint16) [32]byte {
+	if region == def.KMS || region == def.KMS && version >= 1112 || region == def.JMS && version >= 380 {
 		version += 13
 	}
 	return cycleAESKeys[version%20]
@@ -113,15 +113,15 @@ func RIJNDAEL_KeySchedule(userKey []byte, info *AES_ALG_INFO) {
 func AES_Init(info *AES_ALG_INFO, pdwKey []byte) {
 	if len(pdwKey) > 0 {
 		switch AESInitType {
-		case enum.Default:
+		case def.Default:
 			for i := range 4 {
 				copy(info.ChainVar[4*i:], pdwKey[:])
 			}
-		case enum.Duplicate:
+		case def.Duplicate:
 			for i := range info.ChainVar {
 				info.ChainVar[i] = pdwKey[0]
 			}
-		case enum.Shuffle:
+		case def.Shuffle:
 			tempKey := make([]byte, 4)
 			copy(tempKey, pdwKey)
 			for i := range 4 {
