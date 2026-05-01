@@ -1,4 +1,4 @@
-package def
+package msnet
 
 const (
 	SERVER_TYPE     string = "login"
@@ -31,7 +31,7 @@ const (
 	BMS   Region = 9
 )
 
-type CipherType int8
+type CipherType uint8
 
 const (
 	AESCipher CipherType = iota
@@ -40,7 +40,7 @@ const (
 	NullCipher
 )
 
-type AESInitType int8
+type AESInitType uint8
 
 const (
 	Default AESInitType = iota

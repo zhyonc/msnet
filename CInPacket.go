@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/zhyonc/msnet/def"
 	"github.com/zhyonc/msnet/internal/crypt"
 
 	"strings"
@@ -35,7 +34,7 @@ func (p *iPacket) DecryptHeader(pBuff []byte) {
 	p.Offset = 0
 	p.RawSeq = uint16(p.Decode2())
 	temp := uint16(p.Decode2())
-	if gSetting.CipherType != def.XORCipher {
+	if gSetting.CipherType != XORCipher {
 		// XORCipher didn't do this
 		temp ^= p.RawSeq
 	}
@@ -44,24 +43,28 @@ func (p *iPacket) DecryptHeader(pBuff []byte) {
 
 // DecryptData implements CInPacket.
 func (p *iPacket) DecryptData(dwKey []byte) {
-	if p.Length <= 0 && p.Length > def.MAX_DATA_LENGTH {
+	if p.Length <= 0 && p.Length > MAX_DATA_LENGTH {
 		slog.Warn("Invalid data length")
 		return
 	}
 	switch gSetting.CipherType {
-	case def.XORCipher:
+	case XORCipher:
 		(*crypt.XORCipher).Decrypt(nil, p.RecvBuff, dwKey)
-	case def.AESCipher:
+	case AESCipher:
 		// Switch AESKey
 		var aesKey [32]byte
 		if gSetting.IsCycleAESKey {
-			aesKey = crypt.GetCycleAESKey(gSetting.MSRegion, gSetting.MSVersion)
+			var version int = int(gSetting.MSVersion)
+			if gSetting.MSRegion == KMS || gSetting.MSRegion == KMS && version >= 1112 || gSetting.MSRegion == JMS && version >= 300 {
+				version += 13
+			}
+			aesKey = crypt.CycleAESKeys[version%20]
 		} else {
 			aesKey = gSetting.AESKeyDecrypt
 		}
 		// Decrypt packet data
 		(*crypt.CAESCipher).Decrypt(nil, aesKey, p.RecvBuff, dwKey)
-		if gSetting.MSRegion > def.TMS || (gSetting.MSRegion == def.CMS && gSetting.MSVersion < 86) {
+		if gSetting.MSRegion > TMS || (gSetting.MSRegion == CMS && gSetting.MSVersion < 86) {
 			(*crypt.CIOBufferManipulator).De(nil, p.RecvBuff)
 		}
 	}
@@ -164,7 +167,7 @@ func (p *iPacket) DecodeFT() time.Time {
 	// Unix epoch is January 1, 1970
 	// Calculate the difference between the two in nanoseconds
 	ft := p.Decode8()
-	nano := (ft - def.FT_EPOCH_DIFF) * 100
+	nano := (ft - FT_EPOCH_DIFF) * 100
 	return time.Unix(0, nano)
 }
 

@@ -3,7 +3,6 @@ package msnet
 import (
 	"time"
 
-	"github.com/zhyonc/msnet/def"
 	"github.com/zhyonc/msnet/internal/crypt"
 
 	"golang.org/x/text/encoding"
@@ -20,10 +19,10 @@ func New(setting *Setting) {
 	gSetting = setting
 	// Language coder
 	switch gSetting.MSRegion {
-	case def.CMS:
+	case CMS:
 		langEncoder = simplifiedchinese.GBK.NewEncoder()
 		langDecoder = simplifiedchinese.GBK.NewDecoder()
-	case def.TMS:
+	case TMS:
 		langEncoder = traditionalchinese.Big5.NewEncoder()
 		langDecoder = traditionalchinese.Big5.NewDecoder()
 	default:
@@ -31,7 +30,7 @@ func New(setting *Setting) {
 		langDecoder = encoding.Nop.NewDecoder()
 	}
 	// AESInitType
-	crypt.AESInitType = gSetting.AESInitType
+	crypt.AESInitType = uint8(gSetting.AESInitType)
 }
 
 type CClientSocket interface {
@@ -42,9 +41,7 @@ type CClientSocket interface {
 	XORSend(buf []byte)
 	OnRead()
 	OnConnect()
-	OnReceiveHotfix(LP_ApplyHotfix uint16)
-	OnAliveReq(LP_AliveReq uint16)
-	OnMigrateCommand(LP_MigrateCommand uint16, ip string, port int16)
+	OnAliveAck()
 	OnOpcodeEncryption(LP_OpcodeEncryption uint16, startOpcode uint16, endOpcode uint16, isSplit bool)
 	DecryptOpcode(randNum uint16) uint16
 	SetLinearCipher(toggle bool)
@@ -58,8 +55,7 @@ type CClientSocket interface {
 type CClientSocketDelegate interface {
 	DebugInPacketLog(id int32, iPacket CInPacket)
 	DebugOutPacketLog(id int32, oPacket COutPacket)
-	NewConnectPacket(region def.Region, version uint16, minorVersion string, seqRcv [4]byte, seqSnd [4]byte) COutPacket
-	NewHotfixPacket() COutPacket
+	NewConnectPacket(region Region, version uint16, minorVersion string, seqRcv [4]byte, seqSnd [4]byte) COutPacket
 	ProcessPacket(cs CClientSocket, iPacket CInPacket)
 	SocketClose(id int32)
 }
@@ -103,6 +99,6 @@ type COutPacket interface {
 	EncodeLocalName(s string)
 	EncodeBuffer(buf []byte)
 	EncryptHeader(pBuff []byte, dataLen int, dwKey []byte)
-	MakeBufferList(cipherType def.CipherType, dwKey []byte) []byte
+	MakeBufferList(cipherType CipherType, dwKey []byte) []byte
 	DumpString(nSize int) string
 }

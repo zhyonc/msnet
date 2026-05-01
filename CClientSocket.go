@@ -9,24 +9,27 @@ import (
 	mrand "math/rand/v2"
 	"net"
 	"strings"
+	"time"
 
-	"github.com/zhyonc/msnet/def"
 	"github.com/zhyonc/msnet/internal/crypt"
 )
 
 type clientSocket struct {
-	id             int32
-	delegate       CClientSocketDelegate
-	sock           net.Conn
-	addr           net.Addr
-	recvBuff       []byte
-	sendBuff       []byte
-	packetRecv     *iPacket
-	seqRcv         [4]byte
-	seqSnd         [4]byte
-	desCipher      *crypt.TripleDESCipher
-	CPMap          map[uint16]uint16
-	isLinearCipher bool
+	id                  int32
+	delegate            CClientSocketDelegate
+	sock                net.Conn
+	addr                net.Addr
+	recvBuff            []byte
+	sendBuff            []byte
+	packetRecv          *iPacket
+	seqRcv              [4]byte
+	seqSnd              [4]byte
+	isLinearCipher      bool
+	desCipher           *crypt.TripleDESCipher
+	CPMap               map[uint16]uint16
+	stopChan            chan struct{}
+	lastAliveAck        time.Time
+	giveExtraTimeForAck time.Duration
 }
 
 func NewCClientSocket(delegate CClientSocketDelegate, conn net.Conn, rcvIV []byte, sndIV []byte) CClientSocket {
@@ -57,6 +60,27 @@ func NewCClientSocket(delegate CClientSocketDelegate, conn net.Conn, rcvIV []byt
 			panic(err)
 		}
 		cs.desCipher = desCipher
+	}
+	// Check alive
+	if gSetting.AliveAckMins > 0 {
+		cs.stopChan = make(chan struct{})
+		cs.lastAliveAck = time.Now()
+		cs.giveExtraTimeForAck = time.Duration(gSetting.AliveAckMins) * time.Minute
+		go func() {
+			ticker := time.NewTicker(cs.giveExtraTimeForAck / 2)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ticker.C:
+					if time.Since(cs.lastAliveAck) > cs.giveExtraTimeForAck {
+						cs.OnError(fmt.Errorf("failed to check client socket %d alive", cs.GetID()))
+						return
+					}
+				case <-cs.stopChan:
+					return
+				}
+			}
+		}()
 	}
 	return cs
 }
@@ -100,7 +124,7 @@ func (cs *clientSocket) XORSend(buf []byte) {
 
 // OnRead implements [CClientSocket].
 func (cs *clientSocket) OnRead() {
-	readSize := def.HEADER_LENGTH
+	readSize := HEADER_LENGTH
 	isHeader := true
 	defer cs.Close()
 	for {
@@ -132,7 +156,7 @@ func (cs *clientSocket) OnRead() {
 			cs.Stepping(cs.seqRcv[:])
 			cs.delegate.DebugInPacketLog(cs.id, iPacket)
 			cs.delegate.ProcessPacket(cs, iPacket)
-			readSize = def.HEADER_LENGTH
+			readSize = HEADER_LENGTH
 		}
 		isHeader = !isHeader
 	}
@@ -148,50 +172,14 @@ func (cs *clientSocket) OnConnect() {
 		oPacket.EncodeBuffer(cs.seqSnd[:])
 		oPacket.Encode1(int8(gSetting.MSRegion))
 	}
-	cs.sendBuff = oPacket.MakeBufferList(def.NullCipher, nil)
+	cs.sendBuff = oPacket.MakeBufferList(NullCipher, nil)
 	cs.XORSend(cs.sendBuff)
 	cs.Flush()
 }
 
-// OnReceiveHotfix implements [CClientSocket].
-func (cs *clientSocket) OnReceiveHotfix(LP_ApplyHotfix uint16) {
-	oPacket := cs.delegate.NewHotfixPacket()
-	if oPacket == nil {
-		oPacket = NewCOutPacket(LP_ApplyHotfix)
-		oPacket.Encode1(1)
-	}
-	cs.SendPacket(oPacket)
-}
-
-// OnAliveReq implements [CClientSocket].
-func (cs *clientSocket) OnAliveReq(LP_AliveReq uint16) {
-	var oPacket COutPacket
-	if gSetting.IsTypeHeader1Byte {
-		oPacket = NewCOutPacket(uint8(LP_AliveReq))
-	} else {
-		oPacket = NewCOutPacket(LP_AliveReq)
-	}
-	cs.SendPacket(oPacket)
-}
-
-// OnMigrateCommand implements [CClientSocket].
-func (cs *clientSocket) OnMigrateCommand(LP_MigrateCommand uint16, ip string, port int16) {
-	var oPacket COutPacket
-	if gSetting.IsTypeHeader1Byte {
-		oPacket = NewCOutPacket(uint8(LP_MigrateCommand))
-	} else {
-		oPacket = NewCOutPacket(LP_MigrateCommand)
-	}
-	oPacket.EncodeBool(true)
-	ipBytes := net.ParseIP(ip)
-	if ipBytes == nil {
-		slog.Warn("[CClientSocket] Invaild ip on migrate command", "ip", ip)
-		oPacket.EncodeBuffer([]byte{127, 0, 0, 1})
-	} else {
-		oPacket.EncodeBuffer(ipBytes.To4())
-	}
-	oPacket.Encode2(port)
-	cs.SendPacket(oPacket)
+// OnAliveAck implements [CClientSocket].
+func (cs *clientSocket) OnAliveAck() {
+	cs.lastAliveAck = time.Now()
 }
 
 // OnOpcodeEncryption implements [CClientSocket].
@@ -257,7 +245,7 @@ func (cs *clientSocket) SetLinearCipher(toggle bool) {
 func (cs *clientSocket) SendPacket(oPacket COutPacket) {
 	cs.delegate.DebugOutPacketLog(cs.id, oPacket)
 	if cs.isLinearCipher {
-		cs.sendBuff = oPacket.MakeBufferList(def.LinearCipher, cs.seqSnd[:])
+		cs.sendBuff = oPacket.MakeBufferList(LinearCipher, cs.seqSnd[:])
 	} else {
 		cs.sendBuff = oPacket.MakeBufferList(gSetting.CipherType, cs.seqSnd[:])
 	}
@@ -273,9 +261,9 @@ func (cs *clientSocket) Stepping(iv []byte) {
 	}
 	// Refresh SeqSnd value
 	switch gSetting.CipherType {
-	case def.XORCipher:
+	case XORCipher:
 		(*crypt.XORCipher).Shuffle(nil, iv)
-	case def.AESCipher, def.LinearCipher:
+	case AESCipher, LinearCipher:
 		(*crypt.CIGCipher).InnoHash(nil, iv)
 	}
 }
@@ -297,9 +285,16 @@ func (cs *clientSocket) OnError(err error) {
 
 // Close implements [CClientSocket].
 func (cs *clientSocket) Close() {
+	if cs.stopChan != nil {
+		close(cs.stopChan)
+		cs.stopChan = nil
+	}
+	if cs.sock != nil {
+		cs.sock.Close()
+		cs.sock = nil
+	}
 	if cs.delegate != nil {
 		cs.delegate.SocketClose(cs.id)
+		cs.delegate = nil
 	}
-	cs.sock.Close()
-	cs = nil
 }

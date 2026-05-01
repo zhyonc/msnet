@@ -6,7 +6,6 @@ import (
 	"net"
 
 	"github.com/zhyonc/msnet"
-	"github.com/zhyonc/msnet/def"
 	"github.com/zhyonc/msnet/internal/opcode"
 )
 
@@ -84,12 +83,7 @@ func (s *server) DebugOutPacketLog(id int32, oPacket msnet.COutPacket) {
 }
 
 // NewConnectPacket implements [msnet.CClientSocketDelegate].
-func (s *server) NewConnectPacket(region def.Region, version uint16, minorVersion string, seqRcv [4]byte, seqSnd [4]byte) msnet.COutPacket {
-	return nil
-}
-
-// NewHotfixPacket implements [msnet.CClientSocketDelegate].
-func (s *server) NewHotfixPacket() msnet.COutPacket {
+func (s *server) NewConnectPacket(region msnet.Region, version uint16, minorVersion string, seqRcv [4]byte, seqSnd [4]byte) msnet.COutPacket {
 	return nil
 }
 
@@ -97,6 +91,8 @@ func (s *server) NewHotfixPacket() msnet.COutPacket {
 func (s *server) ProcessPacket(cs msnet.CClientSocket, iPacket msnet.CInPacket) {
 	op := iPacket.Decode2()
 	switch op {
+	case opcode.CP_AliveAck:
+		cs.OnAliveAck()
 	default:
 		slog.Warn("Unprocessed CInPacket", "opcode", fmt.Sprintf("0x%X", op))
 	}

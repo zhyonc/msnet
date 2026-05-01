@@ -13,7 +13,6 @@ import (
 	"net"
 
 	"github.com/zhyonc/msnet"
-	"github.com/zhyonc/msnet/def"
 )
 
 type server struct {
@@ -63,7 +62,7 @@ func (s *server) Shutdown() {
 
 func main() {
 	msnet.New(&msnet.Setting{
-		MSRegion:       def.GMS,
+		MSRegion:       msnet.GMS,
 		MSVersion:      95,
 		MSMinorVersion: "1",
 	})
@@ -90,6 +89,7 @@ func main() {
 	- Encrypt: A 32-byte array used for encrypting data in COutPacket::MakeBufferList
 - RecvXOR (optional): The server must use the same XOR key to recover the original packet
 - SendXOR (optional): The client must use the same XOR key to recover the original packet
+- AliveAckMins (optional): Client heartbeat timeout minutes (0 to disable)
 - IsTypeHeader1Byte: Used in versions about 2004~2008
 - AESInitType (optional): Compatible with older versions based on [AES encrypt](https://forum.ragezone.com/threads/maple-aes-encrypt-impl-before-about-2008-client-with-explain-ida-pseudocode.1230984/)
 	- Default: Used in versions after about 2008

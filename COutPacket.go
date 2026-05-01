@@ -6,7 +6,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/zhyonc/msnet/def"
 	"github.com/zhyonc/msnet/internal/crypt"
 )
 
@@ -129,7 +128,7 @@ func (p *oPacket) EncodeFT(t time.Time) {
 	// Convert from nanoseconds to 100-nanosecond intervals (the unit used by FileTime)
 	ft := nano / 100
 	// Add the difference between the Unix and FileTime epochs
-	ft += def.FT_EPOCH_DIFF
+	ft += FT_EPOCH_DIFF
 	p.Encode8(ft)
 }
 
@@ -173,7 +172,7 @@ func (p *oPacket) EncryptHeader(pBuff []byte, dataLen int, dwKey []byte) {
 	HIWORD := binary.LittleEndian.Uint16(dwKey[2:4])
 	uRawSeq := HIWORD ^ uSeqBaseN
 	temp := uint16(dataLen)
-	if gSetting.CipherType != def.XORCipher {
+	if gSetting.CipherType != XORCipher {
 		// XORCipher didn't do this
 		temp ^= uRawSeq
 	}
@@ -182,29 +181,33 @@ func (p *oPacket) EncryptHeader(pBuff []byte, dataLen int, dwKey []byte) {
 }
 
 // MakeBufferList implements COutPacket
-func (p *oPacket) MakeBufferList(cipherType def.CipherType, dwKey []byte) []byte {
+func (p *oPacket) MakeBufferList(cipherType CipherType, dwKey []byte) []byte {
 	dataLen := len(p.SendBuff)
-	bufferList := make([]byte, def.HEADER_LENGTH+dataLen)
-	copy(bufferList[def.HEADER_LENGTH:], p.SendBuff)
+	bufferList := make([]byte, HEADER_LENGTH+dataLen)
+	copy(bufferList[HEADER_LENGTH:], p.SendBuff)
 	switch cipherType {
-	case def.AESCipher:
+	case AESCipher:
 		// Encrypt packet header
 		p.EncryptHeader(bufferList, dataLen, dwKey)
 		// IsEncryptedByShanda
-		if gSetting.MSRegion > def.TMS || (gSetting.MSRegion == def.CMS && gSetting.MSVersion < 86) {
-			(*crypt.CIOBufferManipulator).En(nil, bufferList[def.HEADER_LENGTH:])
+		if gSetting.MSRegion > TMS || (gSetting.MSRegion == CMS && gSetting.MSVersion < 86) {
+			(*crypt.CIOBufferManipulator).En(nil, bufferList[HEADER_LENGTH:])
 			p.IsEncryptedByShanda = true
 		}
 		// Switch AESKey
 		var aesKey [32]byte
 		if gSetting.IsCycleAESKey {
-			aesKey = crypt.GetCycleAESKey(gSetting.MSRegion, gSetting.MSVersion)
+			var version int = int(gSetting.MSVersion)
+			if gSetting.MSRegion == KMS || gSetting.MSRegion == KMS && version >= 1112 || gSetting.MSRegion == JMS && version >= 300 {
+				version += 13
+			}
+			aesKey = crypt.CycleAESKeys[version%20]
 		} else {
 			aesKey = gSetting.AESKeyEncrypt
 		}
 		// Encrypt packet data
 		bufferListLen := len(bufferList)
-		blockSize := def.HEADER_LENGTH + def.MAX_DATA_LENGTH
+		blockSize := HEADER_LENGTH + MAX_DATA_LENGTH
 		// Encrypt First Block
 		firstEnd := min(bufferListLen, blockSize)
 		(*crypt.CAESCipher).Encrypt(nil, aesKey, bufferList[4:firstEnd], dwKey)
@@ -213,20 +216,20 @@ func (p *oPacket) MakeBufferList(cipherType def.CipherType, dwKey []byte) []byte
 			remainEnd := min(i+blockSize, bufferListLen)
 			(*crypt.CAESCipher).Encrypt(nil, aesKey, bufferList[i:remainEnd], dwKey)
 		}
-	case def.XORCipher:
+	case XORCipher:
 		// Encrypt packet header
 		p.EncryptHeader(bufferList, dataLen, dwKey)
 		// Encrypt packet data
-		(*crypt.XORCipher).Encrypt(nil, bufferList[def.HEADER_LENGTH:], dwKey)
-	case def.LinearCipher:
+		(*crypt.XORCipher).Encrypt(nil, bufferList[HEADER_LENGTH:], dwKey)
+	case LinearCipher:
 		// Encrypt packet header
 		p.EncryptHeader(bufferList, dataLen, dwKey)
 		// Encrypt packet data
 		key := dwKey[0]
-		for i := def.HEADER_LENGTH; i < len(bufferList); i++ {
+		for i := HEADER_LENGTH; i < len(bufferList); i++ {
 			bufferList[i] += key
 		}
-	case def.NullCipher:
+	case NullCipher:
 		// Encode packet header for CClientSocket::OnConnect
 		binary.LittleEndian.PutUint16(bufferList, uint16(dataLen+2)) // +2 for MSVersion
 		binary.LittleEndian.PutUint16(bufferList[2:4], gSetting.MSVersion)
