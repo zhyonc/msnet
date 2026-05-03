@@ -21,9 +21,9 @@ func main() {
 		MSMinorVersion: "1",
 	})
 	// Set logger
-	done := make(chan bool, 1)
 	logFilename := fmt.Sprintf("%s-server-%s.log", msnet.SERVER_TYPE, time.Now().Format("2006-01-02_15-04-05"))
-	msnet.SetLogger(msnet.LOG_BACKUP_DIR, logFilename, slog.LevelDebug, done)
+	closeFile := msnet.SetLogger(msnet.LOG_BACKUP_DIR, logFilename, slog.LevelDebug)
+	defer closeFile()
 	// New Server
 	s := server.NewServer(msnet.SERVER_ADDR)
 	// Avoid unexpected exit
@@ -36,7 +36,6 @@ func main() {
 				slog.Info("Server will shutdown after 3s")
 				time.Sleep(3 * time.Second)
 				s.Shutdown()
-				done <- true
 				return
 			default:
 				slog.Info("other signal", "syscall", sig)

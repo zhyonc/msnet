@@ -50,8 +50,10 @@ func (s *server) Run() {
 }
 
 func (s *server) Shutdown() {
-	s.lis.Close()
-	s.lis = nil
+	if s.lis != nil {
+		s.lis.Close()
+		s.lis = nil
+	}
 }
 
 // DebugInPacketLog implements [msnet.CClientSocketDelegate].

@@ -1,9 +1,9 @@
 package msnet
 
 const (
+	LOG_BACKUP_DIR  string = "./log"
 	SERVER_TYPE     string = "login"
 	SERVER_ADDR     string = "127.0.0.1:8484"
-	LOG_BACKUP_DIR  string = "./log"
 	HEADER_LENGTH   int    = 4
 	MAX_DATA_LENGTH int    = 1456
 	FT_EPOCH_DIFF   int64  = 116444736000000000 // FileTime epoch is January 1, 1601
