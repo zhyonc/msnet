@@ -67,24 +67,22 @@ func (p *iPacket) DecryptData(dwKey []byte) {
 		if gSetting.MSRegion > TMS || (gSetting.MSRegion == CMS && gSetting.MSVersion < 86) {
 			(*crypt.CIOBufferManipulator).De(nil, p.RecvBuff)
 		}
+	default:
+		panic("Unknown cipher type")
 	}
-
 }
 
 // GetType implements CInPacket.
 func (p *iPacket) GetType() uint16 {
-	if len(p.RecvBuff) >= 2 {
+	bufLen := len(p.RecvBuff)
+	switch {
+	case gSetting.IsTypeHeader1Byte && bufLen >= 1:
+		return uint16(p.RecvBuff[0])
+	case bufLen >= 2:
 		return uint16(p.RecvBuff[0]) | uint16(p.RecvBuff[1])<<8
+	default:
+		return 0
 	}
-	return 0
-}
-
-// GetTypeByte implements CInPacket.
-func (p *iPacket) GetTypeByte() uint8 {
-	if len(p.RecvBuff) >= 1 {
-		return uint8(p.RecvBuff[0])
-	}
-	return 0
 }
 
 // GetRemain implements CInPacket.
@@ -162,11 +160,9 @@ func (p *iPacket) Decode8() int64 {
 // DecodeFT implements CInPacket.
 func (p *iPacket) DecodeFT() time.Time {
 	// FileTime is in 100-nanosecond intervals
-	// Convert to nanoseconds by multiplying by 100
-	// FileTime epoch is January 1, 1601
-	// Unix epoch is January 1, 1970
-	// Calculate the difference between the two in nanoseconds
 	ft := p.Decode8()
+	// Subtract FT_EPOCH_DIFF
+	// Multiply by 100 to convert 100ns units -> nanoseconds
 	nano := (ft - FT_EPOCH_DIFF) * 100
 	return time.Unix(0, nano)
 }

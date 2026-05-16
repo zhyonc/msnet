@@ -41,7 +41,10 @@ type CClientSocket interface {
 	XORSend(buf []byte)
 	OnRead()
 	OnConnect()
+	LoopAliveAck(aliveAckSec int)
 	OnAliveAck()
+	LoopAliveReq(aliveReqSec int, LP_AliveReq uint16)
+	OnAliveReq(LP_AliveReq uint16)
 	OnOpcodeEncryption(LP_OpcodeEncryption uint16, startOpcode uint16, endOpcode uint16, isSplit bool)
 	DecryptOpcode(randNum uint16) uint16
 	SetLinearCipher(toggle bool)
@@ -64,7 +67,6 @@ type CInPacket interface {
 	DecryptHeader(pBuff []byte)
 	DecryptData(dwKey []byte)
 	GetType() uint16
-	GetTypeByte() uint8
 	GetRemain() int
 	GetOffset() int
 	GetLength() int
@@ -84,7 +86,6 @@ type CInPacket interface {
 
 type COutPacket interface {
 	GetType() uint16
-	GetTypeByte() uint8
 	GetSendBuffer() []byte
 	GetOffset() int
 	GetLength() int

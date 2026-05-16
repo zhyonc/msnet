@@ -15,21 +15,20 @@ import (
 )
 
 type clientSocket struct {
-	id                  int32
-	delegate            CClientSocketDelegate
-	sock                net.Conn
-	addr                net.Addr
-	recvBuff            []byte
-	sendBuff            []byte
-	packetRecv          *iPacket
-	seqRcv              [4]byte
-	seqSnd              [4]byte
-	isLinearCipher      bool
-	desCipher           *crypt.TripleDESCipher
-	CPMap               map[uint16]uint16
-	stopChan            chan struct{}
-	lastAliveAck        time.Time
-	giveExtraTimeForAck time.Duration
+	id               int32
+	delegate         CClientSocketDelegate
+	sock             net.Conn
+	addr             net.Addr
+	recvBuff         []byte
+	sendBuff         []byte
+	packetRecv       *iPacket
+	seqRcv           [4]byte
+	seqSnd           [4]byte
+	isLinearCipher   bool
+	desCipher        *crypt.TripleDESCipher
+	CPMap            map[uint16]uint16
+	stopChan         chan struct{}
+	lastAliveAckTime time.Time
 }
 
 func NewCClientSocket(delegate CClientSocketDelegate, conn net.Conn, rcvIV []byte, sndIV []byte) CClientSocket {
@@ -41,6 +40,7 @@ func NewCClientSocket(delegate CClientSocketDelegate, conn net.Conn, rcvIV []byt
 		sock:       conn,
 		addr:       conn.RemoteAddr(),
 		packetRecv: &iPacket{},
+		stopChan:   make(chan struct{}),
 	}
 	// IV
 	if len(rcvIV) == 0 {
@@ -60,27 +60,6 @@ func NewCClientSocket(delegate CClientSocketDelegate, conn net.Conn, rcvIV []byt
 			panic(err)
 		}
 		cs.desCipher = desCipher
-	}
-	// Check alive
-	if gSetting.AliveAckMins > 0 {
-		cs.stopChan = make(chan struct{})
-		cs.lastAliveAck = time.Now()
-		cs.giveExtraTimeForAck = time.Duration(gSetting.AliveAckMins) * time.Minute
-		go func() {
-			ticker := time.NewTicker(cs.giveExtraTimeForAck / 2)
-			defer ticker.Stop()
-			for {
-				select {
-				case <-ticker.C:
-					if time.Since(cs.lastAliveAck) > cs.giveExtraTimeForAck {
-						cs.OnError(fmt.Errorf("failed to check client socket %d alive", cs.GetID()))
-						return
-					}
-				case <-cs.stopChan:
-					return
-				}
-			}
-		}()
 	}
 	return cs
 }
@@ -128,6 +107,9 @@ func (cs *clientSocket) OnRead() {
 	isHeader := true
 	defer cs.Close()
 	for {
+		if cs.sock == nil {
+			return
+		}
 		cs.recvBuff = make([]byte, readSize)
 		_, err := cs.sock.Read(cs.recvBuff)
 		if err != nil {
@@ -164,6 +146,9 @@ func (cs *clientSocket) OnRead() {
 
 // OnConnect implements [CClientSocket].
 func (cs *clientSocket) OnConnect() {
+	if cs.delegate == nil {
+		return
+	}
 	oPacket := cs.delegate.NewConnectPacket(gSetting.MSRegion, gSetting.MSVersion, gSetting.MSMinorVersion, cs.seqRcv, cs.seqSnd)
 	if oPacket == nil {
 		oPacket = NewCOutPacket()
@@ -177,9 +162,59 @@ func (cs *clientSocket) OnConnect() {
 	cs.Flush()
 }
 
+// LoopAliveAck implements [CClientSocket].
+func (cs *clientSocket) LoopAliveAck(aliveAckSec int) {
+	if aliveAckSec <= 0 {
+		return
+	}
+	aliveTimeout := time.Duration(aliveAckSec) * time.Second
+	cs.lastAliveAckTime = time.Now()
+	go func() {
+		ticker := time.NewTicker(aliveTimeout / 2)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				if time.Since(cs.lastAliveAckTime) > aliveTimeout {
+					cs.OnError(fmt.Errorf("failed to check client socket %d alive", cs.GetID()))
+					return
+				}
+			case <-cs.stopChan:
+				return
+			}
+		}
+	}()
+}
+
 // OnAliveAck implements [CClientSocket].
 func (cs *clientSocket) OnAliveAck() {
-	cs.lastAliveAck = time.Now()
+	cs.lastAliveAckTime = time.Now()
+}
+
+// LoopAliveReq implements [CClientSocket].
+func (cs *clientSocket) LoopAliveReq(aliveReqSec int, LP_AliveReq uint16) {
+	if aliveReqSec <= 0 {
+		return
+	}
+	aliveReqTime := time.Duration(aliveReqSec) * time.Second
+	go func() {
+		ticker := time.NewTicker(aliveReqTime)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				cs.OnAliveReq(LP_AliveReq)
+			case <-cs.stopChan:
+				return
+			}
+		}
+	}()
+}
+
+// OnAliveReq implements [CClientSocket].
+func (cs *clientSocket) OnAliveReq(LP_AliveReq uint16) {
+	oPacket := NewCOutPacket(LP_AliveReq)
+	cs.SendPacket(oPacket)
 }
 
 // OnOpcodeEncryption implements [CClientSocket].
@@ -243,6 +278,9 @@ func (cs *clientSocket) SetLinearCipher(toggle bool) {
 
 // SendPacket implements [CClientSocket].
 func (cs *clientSocket) SendPacket(oPacket COutPacket) {
+	if cs.delegate == nil {
+		return
+	}
 	cs.delegate.DebugOutPacketLog(cs.id, oPacket)
 	if cs.isLinearCipher {
 		cs.sendBuff = oPacket.MakeBufferList(LinearCipher, cs.seqSnd[:])

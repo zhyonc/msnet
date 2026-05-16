@@ -46,18 +46,15 @@ func NewCOutPacket(nType ...any) COutPacket {
 
 // GetType implements COutPacket
 func (p *oPacket) GetType() uint16 {
-	if len(p.SendBuff) >= 2 {
+	bufLen := len(p.SendBuff)
+	switch {
+	case gSetting.IsTypeHeader1Byte && bufLen >= 1:
+		return uint16(p.SendBuff[0])
+	case bufLen >= 2:
 		return uint16(p.SendBuff[0]) | uint16(p.SendBuff[1])<<8
+	default:
+		return 0
 	}
-	return 0
-}
-
-// GetTypeByte implements COutPacket.
-func (p *oPacket) GetTypeByte() uint8 {
-	if len(p.SendBuff) >= 1 {
-		return uint8(p.SendBuff[0])
-	}
-	return 0
 }
 
 // GetOffset implements COutPacket.
@@ -119,16 +116,11 @@ func (p *oPacket) Encode8(n int64) {
 
 // EncodeFT implements COutPacket
 func (p *oPacket) EncodeFT(t time.Time) {
-	// Convert the time.Time value to nanoseconds since the Unix epoch
-	nano := t.UnixNano() // nano=currentTime-8hours
-	// Add the local time zone offset
-	_, offset := t.Zone()
-	offsetNano := int64(offset) * int64(time.Second)
-	nano += offsetNano
-	// Convert from nanoseconds to 100-nanosecond intervals (the unit used by FileTime)
-	ft := nano / 100
-	// Add the difference between the Unix and FileTime epochs
-	ft += FT_EPOCH_DIFF
+	// FileTime is in 100-nanosecond intervals
+	nano := t.UnixNano()
+	// Divide by 100 to convert nanoseconds -> 100ns units
+	// Add FT_EPOCH_DIFF
+	ft := nano/100 + FT_EPOCH_DIFF
 	p.Encode8(ft)
 }
 
@@ -233,6 +225,8 @@ func (p *oPacket) MakeBufferList(cipherType CipherType, dwKey []byte) []byte {
 		// Encode packet header for CClientSocket::OnConnect
 		binary.LittleEndian.PutUint16(bufferList, uint16(dataLen+2)) // +2 for MSVersion
 		binary.LittleEndian.PutUint16(bufferList[2:4], gSetting.MSVersion)
+	default:
+		panic("Unknown cipher type")
 	}
 	return bufferList
 }

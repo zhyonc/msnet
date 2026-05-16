@@ -11,7 +11,6 @@ type Setting struct {
 	AESKeyEncrypt     [32]byte
 	RecvXOR           uint8
 	SendXOR           uint8
-	AliveAckMins      uint8
 	IsTypeHeader1Byte bool
 	AESInitType       AESInitType
 }

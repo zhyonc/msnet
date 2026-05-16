@@ -44,6 +44,8 @@ func (s *server) Run() {
 		cs := msnet.NewCClientSocket(s, conn, nil, nil)
 		go cs.OnRead()
 		cs.OnConnect()
+		cs.LoopAliveAck(0)
+		cs.LoopAliveReq(0, opcode.LP_AliveReq)
 		cs.SetID(idCount)
 		idCount++
 	}
@@ -61,12 +63,8 @@ func (s *server) DebugInPacketLog(id int32, iPacket msnet.CInPacket) {
 	key := iPacket.GetType()
 	_, ok := opcode.NotLogCP[key]
 	if !ok {
-		tag, find := opcode.CPMap[key]
-		if find {
-			slog.Debug("[CInPacket]", "id", id, "opcode", tag, "length", iPacket.GetLength(), "data", iPacket.DumpString(-1))
-		} else {
-			slog.Debug("[CInPacket]", "id", id, "opcode", key, "length", iPacket.GetLength(), "data", iPacket.DumpString(-1))
-		}
+		tag, _ := opcode.CPMap[key]
+		slog.Debug("[CInPacket]", "id", id, "opcode", fmt.Sprintf("%d/0x%04X", key, key), "tag", tag, "length", iPacket.GetLength(), "data", iPacket.DumpString(-1))
 	}
 }
 
@@ -75,12 +73,8 @@ func (s *server) DebugOutPacketLog(id int32, oPacket msnet.COutPacket) {
 	key := oPacket.GetType()
 	_, ok := opcode.NotLogLP[key]
 	if !ok {
-		tag, find := opcode.LPMap[key]
-		if find {
-			slog.Debug("[COutPacket]", "id", id, "opcode", tag, "length", oPacket.GetLength(), "data", oPacket.DumpString(-1))
-		} else {
-			slog.Debug("[COutPacket]", "id", id, "opcode", key, "length", oPacket.GetLength(), "data", oPacket.DumpString(-1))
-		}
+		tag, _ := opcode.LPMap[key]
+		slog.Debug("[COutPacket]", "id", id, "opcode", fmt.Sprintf("%d/0x%04X", key, key), "tag", tag, "length", oPacket.GetLength(), "data", oPacket.DumpString(-1))
 	}
 }
 
@@ -96,7 +90,7 @@ func (s *server) ProcessPacket(cs msnet.CClientSocket, iPacket msnet.CInPacket) 
 	case opcode.CP_AliveAck:
 		cs.OnAliveAck()
 	default:
-		slog.Warn("Unprocessed CInPacket", "opcode", fmt.Sprintf("0x%X", op))
+		slog.Warn("Unprocessed CInPacket", "opcode", fmt.Sprintf("%d/0x%04X", op, op))
 	}
 }
 
