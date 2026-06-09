@@ -12,7 +12,7 @@ type TripleDESCipher struct {
 	block cipher.Block
 }
 
-func NewTripleDESCipher(desKey string) (*TripleDESCipher, error) {
+func NewTripleDESCipher(desKey string) *TripleDESCipher {
 	finalKey := make([]byte, 24)
 	if len(desKey) == 16 {
 		copy(finalKey[0:16], desKey)
@@ -20,17 +20,16 @@ func NewTripleDESCipher(desKey string) (*TripleDESCipher, error) {
 	} else if len(desKey) == 24 {
 		copy(finalKey, desKey)
 	} else {
-		return nil, fmt.Errorf("des key length must be 16 or 24 byte")
+		panic("des key length must be 16 or 24 byte")
 	}
 	temp, err := des.NewTripleDESCipher(finalKey)
 	if err != nil {
-		return nil, err
+		panic(err)
 	}
-
 	return &TripleDESCipher{
 		key:   finalKey,
 		block: temp,
-	}, nil
+	}
 }
 
 func (c *TripleDESCipher) GetBlockSize() int32 {

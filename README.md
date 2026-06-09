@@ -11,6 +11,7 @@ package main
 import (
 	"log/slog"
 	"net"
+	"sync/atomic"
 
 	"github.com/zhyonc/msnet"
 )
@@ -18,6 +19,7 @@ import (
 type server struct {
 	addr string
 	lis  net.Listener
+	idCount atomic.Int32
 }
 
 func NewServer(addr string) *server {
@@ -50,8 +52,7 @@ func (s *server) Run() {
 		cs := msnet.NewCClientSocket(s, conn, nil, nil)
 		go cs.OnRead()
 		cs.OnConnect()
-		cs.SetID(idCount)
-		idCount++
+		cs.SetID(s.idCount.Add(1))
 	}
 }
 
@@ -74,28 +75,34 @@ func main() {
 
 ```
 ## Setting
+- LocaleRegion: Language Regions including `EUCKR(KMS)/ShiftJIS(JMS)/GBK(CMS)/Big5(TMS)`
 - MSRegion: MapleStory Regions including `GMSCW(1)/KMS(1)`/`KMST(2)`/`JMS(3)`/`CMS(4)`/`TMS(6)`/`MSEA(7)`/`GMS(8)`/`BMS(9)`
 - MSVersion: MapleStory Client Version
 - MSMinorVersion: MapleStory Client Minor Version
-- CipherType: 
-	- AESCipher: Used for the majority of clients
+- RecvCipherType: Defines how `CInPacket` are decrypted
+	- AESCipher: Used for the majority of clients (default) 
 	- XORCipher: Used in versions about 2004
-	- LinearCipher: Used for GMS LP data since 2017 (excluding the login server)
+- SendCipherType: Defines how `COutPacket` are encrypted
+	- AESCipher: Used for the majority of clients (default) 
+	- XORCipher: Used in versions about 2004
+	- LinearCipher: Used for server packet data since 2017 (excluding the login server)
 	- NullCipher: Used for connect packet
-- DESKey (optional): A 16-byte string used  for opcode encryption based on [v193-encryption](https://forum.ragezone.com/threads/v193-encryption.1147967/) and [opcode-encryption-fix](https://forum.ragezone.com/threads/deskey-list-impl-after-2023-opcode-encryption-fix-mapleshark.1231055/)
-- IsCycleAESKey (optional): 
-	- Default is false, `old AES key` will be used, which is compatible with most earlier versions
-	- If set true, `cycle AES key` will be used, which is compatible with newer versions
-- CustomAESKey (optional): It's used to instead of `old AES key` and `cycle AES key`
-	- Decrypt: A 32-byte array used for decrypting data in CInPacket::DecryptData
-	- Encrypt: A 32-byte array used for encrypting data in COutPacket::MakeBufferList
-- RecvXOR (optional): The server must use the same XOR key to recover the original packet
-- SendXOR (optional): The client must use the same XOR key to recover the original packet
+- DESKey (optional): A 16-byte string used for opcode encryption based on [v193-encryption](https://forum.ragezone.com/threads/v193-encryption.1147967/)
+- AESKeyType (optional)
+	- DefaultKey: Uses the fixed `AESKeyDefault` for old MSVersion
+	- CycleKey: Picks a key from the `CycleAESKeys` using `MSVersion%20`
+	- CycleKey13: Same as CycleKey, but adds an offset of +13 before modulo 20
+- AESKey (optional): A 32-byte array used for packet data
+	- If provided directly, this key is used as‑is
+	- If not set (first byte is zero), the key is derived according to the `AESKeyType`
+
 - IsTypeHeader1Byte: Used in versions about 2004~2008
-- AESInitType (optional): Compatible with older versions based on [AES encrypt](https://forum.ragezone.com/threads/maple-aes-encrypt-impl-before-about-2008-client-with-explain-ida-pseudocode.1230984/)
+- AESInitType (optional): Compatible with older versions
 	- Default: Used in versions after about 2008
 	- Duplicate: Used in versions about 2005~2007 (`excluding TMS`)
 	- Shuffle: Used in TMS versions about 2005~2007
+- RecvBuffXOR (optional): The server must use the same XOR key to recover the original packet buffer
+- SendBuffXOR (optional): The client must use the same XOR key to recover the original packet buffer
 
 ## Packet
 |Header|AESOFB|Note|

@@ -27,14 +27,14 @@ func NewCInPacket(buf []byte) CInPacket {
 
 // CInPacket::AppendBuffer
 // DecryptHeader implements CInPacket.
-func (p *iPacket) DecryptHeader(pBuff []byte) {
+func (p *iPacket) DecryptHeader(cipherType CipherType, pBuff []byte) {
 	// Decode packet length
 	p.RecvBuff = pBuff
 	p.Length = len(pBuff)
 	p.Offset = 0
 	p.RawSeq = uint16(p.Decode2())
 	temp := uint16(p.Decode2())
-	if gSetting.CipherType != XORCipher {
+	if cipherType != XORCipher {
 		// XORCipher didn't do this
 		temp ^= p.RawSeq
 	}
@@ -42,33 +42,25 @@ func (p *iPacket) DecryptHeader(pBuff []byte) {
 }
 
 // DecryptData implements CInPacket.
-func (p *iPacket) DecryptData(dwKey []byte) {
+func (p *iPacket) DecryptData(cipherType CipherType, dwKey []byte) {
 	if p.Length <= 0 && p.Length > MAX_DATA_LENGTH {
 		slog.Warn("Invalid data length")
 		return
 	}
-	switch gSetting.CipherType {
-	case XORCipher:
-		(*crypt.XORCipher).Decrypt(nil, p.RecvBuff, dwKey)
+	switch cipherType {
 	case AESCipher:
-		// Switch AESKey
-		var aesKey [32]byte
-		if gSetting.IsCycleAESKey {
-			var version int = int(gSetting.MSVersion)
-			if gSetting.MSRegion == KMS || gSetting.MSRegion == KMS && version >= 1112 || gSetting.MSRegion == JMS && version >= 300 {
-				version += 13
-			}
-			aesKey = crypt.CycleAESKeys[version%20]
-		} else {
-			aesKey = gSetting.AESKeyDecrypt
-		}
 		// Decrypt packet data
-		(*crypt.CAESCipher).Decrypt(nil, aesKey, p.RecvBuff, dwKey)
+		gAESCipher.Decrypt(p.RecvBuff, dwKey)
+		// IsEncryptedByShanda
 		if gSetting.MSRegion > TMS || (gSetting.MSRegion == CMS && gSetting.MSVersion < 86) {
 			(*crypt.CIOBufferManipulator).De(nil, p.RecvBuff)
 		}
+	case XORCipher:
+		gXORCipher.Decrypt(p.RecvBuff, dwKey)
+	case LinearCipher:
+		gLinearCipher.Decrypt(p.RecvBuff, dwKey)
 	default:
-		panic("Unknown cipher type")
+		slog.Warn("Unknown cipher type when DecryptData", "cipherType", cipherType)
 	}
 }
 
@@ -157,45 +149,6 @@ func (p *iPacket) Decode8() int64 {
 	return result
 }
 
-// DecodeFT implements CInPacket.
-func (p *iPacket) DecodeFT() time.Time {
-	// FileTime is in 100-nanosecond intervals
-	ft := p.Decode8()
-	// Subtract FT_EPOCH_DIFF
-	// Multiply by 100 to convert 100ns units -> nanoseconds
-	nano := (ft - FT_EPOCH_DIFF) * 100
-	return time.Unix(0, nano)
-}
-
-// DecodeStr implements CInPacket.
-func (p *iPacket) DecodeStr() string {
-	if p.GetRemain() < 2 {
-		return ""
-	}
-	strLen := p.Decode2()
-	if p.GetRemain() < int(strLen) {
-		return ""
-	}
-	start := p.Offset
-	end := p.Offset + int(strLen)
-	str := string(p.RecvBuff[start:end])
-	p.Offset = end
-	return str
-}
-
-// DecodeLocalStr implements CInPacket.
-func (p *iPacket) DecodeLocalStr() string {
-	strLen := p.Decode2()
-	buf := p.DecodeBuffer(int(strLen))
-	return GetLangStr(buf)
-}
-
-// DecodeLocalName implements CInPacket.
-func (p *iPacket) DecodeLocalName() string {
-	buf := p.DecodeBuffer(13)
-	return GetLangStr(buf)
-}
-
 // DecodeBuffer implements CInPacket.
 func (p *iPacket) DecodeBuffer(uSize int) []byte {
 	if p.GetRemain() < uSize {
@@ -209,6 +162,60 @@ func (p *iPacket) DecodeBuffer(uSize int) []byte {
 		result[i] = byte(p.Decode1())
 	}
 	return result
+}
+
+// DecodeStr implements CInPacket.
+func (p *iPacket) DecodeStr() string {
+	if p.GetRemain() < 2 {
+		return ""
+	}
+	strLen := int(p.Decode2())
+	if strLen <= 0 {
+		return ""
+	}
+	if p.GetRemain() < strLen {
+		strLen = p.GetRemain()
+	}
+	rawBuf := p.DecodeBuffer(strLen)
+	return GetLocaleStr(rawBuf)
+}
+
+// DecodeName implements CInPacket.
+func (p *iPacket) DecodeName(uSize ...int) string {
+	nameLen := MAX_NAME_LENGTH
+	if len(uSize) > 0 {
+		nameLen = uSize[0]
+	}
+	if p.GetRemain() < nameLen {
+		nameLen = p.GetRemain()
+	}
+	rawBuf := p.DecodeBuffer(nameLen)
+	return GetLocaleStr(rawBuf)
+}
+
+// DecodeTime implements [CInPacket].
+func (p *iPacket) DecodeTime() uint32 {
+	cTime := uint32(time.Now().UnixMilli())
+	isPast := p.DecodeBool()
+	offset := uint32(p.Decode4())
+	if isPast {
+		return cTime - offset
+	} else {
+		return cTime + offset
+	}
+}
+
+// DecodeDateTime implements CInPacket.
+func (p *iPacket) DecodeDateTime() time.Time {
+	// FileTime is in 100-nanosecond intervals
+	ft := p.Decode8()
+	if ft < FT_EPOCH_DIFF {
+		return time.Unix(0, 0)
+	}
+	// Subtract FT_EPOCH_DIFF
+	// Multiply by 100 to convert 100ns units -> nanoseconds
+	nano := (ft - FT_EPOCH_DIFF) * 100
+	return time.Unix(0, nano)
 }
 
 // DumpString implements CInPacket.

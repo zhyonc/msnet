@@ -4,24 +4,28 @@ import "encoding/binary"
 
 type XORCipher struct{}
 
-func (static *XORCipher) Decrypt(buf []byte, pdwKey []byte) {
-	inputKey := pdwKey[0]
+func NewXORCipher() *XORCipher {
+	return &XORCipher{}
+}
+
+func (c *XORCipher) Decrypt(buf []byte, dwKey []byte) {
+	inputKey := dwKey[0]
 	for i := range buf {
 		b := inputKey ^ buf[i]
 		buf[i] = (b << 4) | (b >> 4)
 	}
 }
 
-func (static *XORCipher) Encrypt(buf []byte, pdwKey []byte) {
-	inputKey := pdwKey[0]
+func (c *XORCipher) Encrypt(buf []byte, dwKey []byte) {
+	inputKey := dwKey[0]
 	for i := range buf {
 		x := (buf[i] << 4) | (buf[i] >> 4)
 		buf[i] = inputKey ^ x
 	}
 }
 
-func (static *XORCipher) Shuffle(pdwKey []byte) {
+func (c *XORCipher) Shuffle(dwKey []byte) {
 	// crtRand
-	seed := binary.LittleEndian.Uint32(pdwKey)
-	binary.LittleEndian.PutUint32(pdwKey, 214013*seed+2531011)
+	seed := binary.LittleEndian.Uint32(dwKey)
+	binary.LittleEndian.PutUint32(dwKey, 214013*seed+2531011)
 }

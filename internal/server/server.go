@@ -4,14 +4,16 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"sync/atomic"
 
 	"github.com/zhyonc/msnet"
 	"github.com/zhyonc/msnet/internal/opcode"
 )
 
 type server struct {
-	addr string
-	lis  net.Listener
+	addr    string
+	lis     net.Listener
+	idCount atomic.Int32
 }
 
 func NewServer(addr string) *server {
@@ -29,7 +31,6 @@ func (s *server) Run() {
 	}
 	slog.Info("TCPListener is starting on " + s.addr)
 	s.lis = lis
-	var idCount int32 = 0
 	for {
 		if s.lis == nil {
 			slog.Warn("TCPListener is nil")
@@ -46,8 +47,7 @@ func (s *server) Run() {
 		cs.OnConnect()
 		cs.LoopAliveAck(0)
 		cs.LoopAliveReq(0, opcode.LP_AliveReq)
-		cs.SetID(idCount)
-		idCount++
+		cs.SetID(s.idCount.Add(1))
 	}
 }
 
@@ -79,7 +79,29 @@ func (s *server) DebugOutPacketLog(id int32, oPacket msnet.COutPacket) {
 }
 
 // NewConnectPacket implements [msnet.CClientSocketDelegate].
-func (s *server) NewConnectPacket(region msnet.Region, version uint16, minorVersion string, seqRcv [4]byte, seqSnd [4]byte) msnet.COutPacket {
+func (s *server) NewConnectPacket(region msnet.Region, version uint16, minorVersion string, seqRcv []byte, seqSnd []byte) msnet.COutPacket {
+	if region == msnet.GMSCW {
+		// Login Server Connect Packet
+		oPacket := msnet.NewCOutPacket()
+		oPacket.EncodeStr(minorVersion)       // sMinorVersion
+		oPacket.EncodeBuffer(seqRcv[:])       // client uSeqSnd
+		oPacket.EncodeBuffer(seqSnd[:])       // client uSeqRcv
+		oPacket.Encode1(int8(region))         // nRegion
+		oPacket.Encode1(0)                    // unk
+		oPacket.Encode2(int16(version))       // nVersion as temp seq
+		oPacket.Encode4(int32(version))       // nVersion
+		oPacket.EncodeStr(minorVersion)       // sMinorVersion
+		oPacket.EncodeBuffer(seqRcv[:])       // client uSeqSnd
+		oPacket.EncodeBuffer(seqSnd[:])       // client uSeqRcv
+		oPacket.Encode1(int8(region))         // nRegion
+		oPacket.Encode4(int32(version * 100)) // nClientVersion_Min
+		oPacket.Encode4(int32(version * 100)) // nClientVersion_Max
+		oPacket.Encode4(0)                    // nClientVersion_Temp
+		oPacket.Encode1(1)                    // nLoginOpt
+		oPacket.Encode1(0)                    // unk
+		oPacket.Encode1(5)                    // nWvsType
+		return oPacket
+	}
 	return nil
 }
 

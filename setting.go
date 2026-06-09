@@ -1,16 +1,17 @@
 package msnet
 
 type Setting struct {
+	LocaleRegion      Region
 	MSRegion          Region
 	MSVersion         uint16
 	MSMinorVersion    string
-	CipherType        CipherType
+	RecvCipherType    CipherType
+	SendCipherType    CipherType
 	DESKey            string
-	IsCycleAESKey     bool
-	AESKeyDecrypt     [32]byte
-	AESKeyEncrypt     [32]byte
-	RecvXOR           uint8
-	SendXOR           uint8
+	AESKeyType        AESKeyType
+	AESKey            [32]byte
 	IsTypeHeader1Byte bool
 	AESInitType       AESInitType
+	RecvBuffXOR       uint8
+	SendBuffXOR       uint8
 }

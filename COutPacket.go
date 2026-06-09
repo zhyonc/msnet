@@ -3,6 +3,7 @@ package msnet
 import (
 	"encoding/binary"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -10,9 +11,8 @@ import (
 )
 
 type oPacket struct {
-	SendBuff            []byte
-	Offset              int
-	IsEncryptedByShanda bool
+	SendBuff []byte
+	Offset   int
 }
 
 func NewCOutPacket(nType ...any) COutPacket {
@@ -38,7 +38,7 @@ func NewCOutPacket(nType ...any) COutPacket {
 		case []byte:
 			p.EncodeBuffer(v)
 		default:
-			panic(fmt.Sprintf("unsupported opcode type: %T", v))
+			slog.Warn(fmt.Sprintf("unsupported opcode type: %T", v))
 		}
 	}
 	return p
@@ -114,57 +114,63 @@ func (p *oPacket) Encode8(n int64) {
 	p.Offset += 8
 }
 
-// EncodeFT implements COutPacket
-func (p *oPacket) EncodeFT(t time.Time) {
-	// FileTime is in 100-nanosecond intervals
-	nano := t.UnixNano()
-	// Divide by 100 to convert nanoseconds -> 100ns units
-	// Add FT_EPOCH_DIFF
-	ft := nano/100 + FT_EPOCH_DIFF
-	p.Encode8(ft)
-}
-
-// EncodeStr implements COutPacket
-func (p *oPacket) EncodeStr(s string) {
-	buf := []byte(s) // ASCII Code
-	bufLen := len(buf)
-	p.Encode2(int16(bufLen))
-	p.SendBuff = append(p.SendBuff, buf...)
-	p.Offset += bufLen
-}
-
-// EncodeLocalStr implements COutPacket
-func (p *oPacket) EncodeLocalStr(s string) {
-	buf := GetLangBuf(s)
-	p.Encode2(int16(len(buf)))
-	p.EncodeBuffer(buf)
-}
-
-// EncodeLocalName implements COutPacket
-func (p *oPacket) EncodeLocalName(s string) {
-	localeBuf := make([]byte, 13)
-	buf := GetLangBuf(s)
-	bufLen := len(buf)
-	if bufLen > 0 {
-		copy(localeBuf, buf)
-	}
-	p.EncodeBuffer(localeBuf)
-	p.Offset += bufLen
-}
-
 // EncodeBuffer implements COutPacket
 func (p *oPacket) EncodeBuffer(buf []byte) {
 	p.SendBuff = append(p.SendBuff, buf...)
 	p.Offset += len(buf)
 }
 
+// EncodeStr implements COutPacket
+func (p *oPacket) EncodeStr(s string) {
+	rawBuf := GetLocaleBuf(s)
+	rawBufLen := len(rawBuf)
+	p.Encode2(int16(rawBufLen))
+	if rawBufLen > 0 {
+		p.EncodeBuffer(rawBuf)
+	}
+}
+
+// EncodeName implements COutPacket
+func (p *oPacket) EncodeName(s string, uSize ...int) {
+	nameLen := MAX_NAME_LENGTH
+	if len(uSize) > 0 {
+		nameLen = uSize[0]
+	}
+	buf := make([]byte, nameLen)
+	rawBuf := GetLocaleBuf(s)
+	copy(buf, rawBuf)
+	p.EncodeBuffer(buf)
+}
+
+// EncodeTime implements [COutPacket].
+func (p *oPacket) EncodeTime(tTime uint32) {
+	cTime := uint32(time.Now().UnixMilli())
+	if cTime >= tTime {
+		p.EncodeBool(true)
+		p.Encode4(int32(cTime - tTime))
+	} else {
+		p.EncodeBool(false)
+		p.Encode4(int32(tTime - cTime))
+	}
+}
+
+// EncodeDateTime implements COutPacket
+func (p *oPacket) EncodeDateTime(dTime time.Time) {
+	// FileTime is in 100-nanosecond intervals
+	nano := dTime.UnixNano()
+	// Divide by 100 to convert nanoseconds -> 100ns units
+	// Add FT_EPOCH_DIFF
+	ft := nano/100 + FT_EPOCH_DIFF
+	p.Encode8(ft)
+}
+
 // EncryptHeader implements [COutPacket].
-func (p *oPacket) EncryptHeader(pBuff []byte, dataLen int, dwKey []byte) {
+func (p *oPacket) EncryptHeader(cipherType CipherType, pBuff []byte, dataLen int, dwKey []byte) {
 	uSeqBaseN := ^gSetting.MSVersion
 	HIWORD := binary.LittleEndian.Uint16(dwKey[2:4])
 	uRawSeq := HIWORD ^ uSeqBaseN
 	temp := uint16(dataLen)
-	if gSetting.CipherType != XORCipher {
+	if cipherType != XORCipher {
 		// XORCipher didn't do this
 		temp ^= uRawSeq
 	}
@@ -180,53 +186,39 @@ func (p *oPacket) MakeBufferList(cipherType CipherType, dwKey []byte) []byte {
 	switch cipherType {
 	case AESCipher:
 		// Encrypt packet header
-		p.EncryptHeader(bufferList, dataLen, dwKey)
+		p.EncryptHeader(cipherType, bufferList, dataLen, dwKey)
 		// IsEncryptedByShanda
 		if gSetting.MSRegion > TMS || (gSetting.MSRegion == CMS && gSetting.MSVersion < 86) {
 			(*crypt.CIOBufferManipulator).En(nil, bufferList[HEADER_LENGTH:])
-			p.IsEncryptedByShanda = true
-		}
-		// Switch AESKey
-		var aesKey [32]byte
-		if gSetting.IsCycleAESKey {
-			var version int = int(gSetting.MSVersion)
-			if gSetting.MSRegion == KMS || gSetting.MSRegion == KMS && version >= 1112 || gSetting.MSRegion == JMS && version >= 300 {
-				version += 13
-			}
-			aesKey = crypt.CycleAESKeys[version%20]
-		} else {
-			aesKey = gSetting.AESKeyEncrypt
 		}
 		// Encrypt packet data
 		bufferListLen := len(bufferList)
 		blockSize := HEADER_LENGTH + MAX_DATA_LENGTH
 		// Encrypt First Block
 		firstEnd := min(bufferListLen, blockSize)
-		(*crypt.CAESCipher).Encrypt(nil, aesKey, bufferList[4:firstEnd], dwKey)
+		gAESCipher.Encrypt(bufferList[4:firstEnd], dwKey)
 		// Encrypt Remain Block
 		for i := firstEnd; i < bufferListLen; i += blockSize {
 			remainEnd := min(i+blockSize, bufferListLen)
-			(*crypt.CAESCipher).Encrypt(nil, aesKey, bufferList[i:remainEnd], dwKey)
+			gAESCipher.Encrypt(bufferList[i:remainEnd], dwKey)
 		}
 	case XORCipher:
 		// Encrypt packet header
-		p.EncryptHeader(bufferList, dataLen, dwKey)
+		p.EncryptHeader(cipherType, bufferList, dataLen, dwKey)
 		// Encrypt packet data
-		(*crypt.XORCipher).Encrypt(nil, bufferList[HEADER_LENGTH:], dwKey)
+		gXORCipher.Encrypt(bufferList[HEADER_LENGTH:], dwKey)
 	case LinearCipher:
 		// Encrypt packet header
-		p.EncryptHeader(bufferList, dataLen, dwKey)
+		p.EncryptHeader(cipherType, bufferList, dataLen, dwKey)
 		// Encrypt packet data
-		key := dwKey[0]
-		for i := HEADER_LENGTH; i < len(bufferList); i++ {
-			bufferList[i] += key
-		}
+		gLinearCipher.Encrypt(bufferList[HEADER_LENGTH:], dwKey)
 	case NullCipher:
 		// Encode packet header for CClientSocket::OnConnect
 		binary.LittleEndian.PutUint16(bufferList, uint16(dataLen+2)) // +2 for MSVersion
 		binary.LittleEndian.PutUint16(bufferList[2:4], gSetting.MSVersion)
 	default:
-		panic("Unknown cipher type")
+		slog.Warn("Unknown cipher type when MakeBufferList", "cipherType", cipherType)
+		return nil
 	}
 	return bufferList
 }

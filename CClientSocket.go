@@ -9,6 +9,7 @@ import (
 	mrand "math/rand/v2"
 	"net"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/zhyonc/msnet/internal/crypt"
@@ -19,15 +20,16 @@ type clientSocket struct {
 	delegate         CClientSocketDelegate
 	sock             net.Conn
 	addr             net.Addr
+	recvCipherType   CipherType
+	sendCipherType   CipherType
+	seqRcv           []byte
+	seqSnd           []byte
 	recvBuff         []byte
 	sendBuff         []byte
 	packetRecv       *iPacket
-	seqRcv           [4]byte
-	seqSnd           [4]byte
-	isLinearCipher   bool
-	desCipher        *crypt.TripleDESCipher
 	CPMap            map[uint16]uint16
 	stopChan         chan struct{}
+	closeOnce        sync.Once
 	lastAliveAckTime time.Time
 }
 
@@ -40,26 +42,24 @@ func NewCClientSocket(delegate CClientSocketDelegate, conn net.Conn, rcvIV []byt
 		sock:       conn,
 		addr:       conn.RemoteAddr(),
 		packetRecv: &iPacket{},
+		CPMap:      make(map[uint16]uint16),
 		stopChan:   make(chan struct{}),
 	}
+	// Cipher Type
+	cs.recvCipherType = gSetting.RecvCipherType
+	cs.sendCipherType = gSetting.SendCipherType
 	// IV
 	if len(rcvIV) == 0 {
+		cs.seqRcv = make([]byte, 4)
 		crand.Read(cs.seqRcv[:])
 	} else {
-		cs.seqRcv = [4]byte(rcvIV)
+		cs.seqRcv = rcvIV
 	}
 	if len(sndIV) == 0 {
+		cs.seqSnd = make([]byte, 4)
 		crand.Read(cs.seqSnd[:])
 	} else {
-		cs.seqSnd = [4]byte(sndIV)
-	}
-	// OpcodeEncryption
-	if gSetting.DESKey != "" {
-		desCipher, err := crypt.NewTripleDESCipher(gSetting.DESKey)
-		if err != nil {
-			panic(err)
-		}
-		cs.desCipher = desCipher
+		cs.seqSnd = sndIV
 	}
 	return cs
 }
@@ -79,25 +79,25 @@ func (cs *clientSocket) GetAddr() string {
 	return cs.addr.String()
 }
 
-// XORRecv implements [CClientSocket].
-func (cs *clientSocket) XORRecv(buf []byte) {
+// XORRecvBuff implements [CClientSocket].
+func (cs *clientSocket) XORRecvBuff() {
 	// The server must use the same XOR key to recover the original packet
-	if gSetting.RecvXOR == 0 {
+	if gSetting.RecvBuffXOR == 0 {
 		return
 	}
-	for i := range buf {
-		buf[i] ^= gSetting.RecvXOR
+	for i := range cs.recvBuff {
+		cs.recvBuff[i] ^= gSetting.RecvBuffXOR
 	}
 }
 
-// XORSend implements [CClientSocket].
-func (cs *clientSocket) XORSend(buf []byte) {
+// XORSendBuff implements [CClientSocket].
+func (cs *clientSocket) XORSendBuff() {
 	// The client must use the same XOR key to recover the original packet
-	if gSetting.SendXOR == 0 {
+	if gSetting.SendBuffXOR == 0 {
 		return
 	}
-	for i := range buf {
-		buf[i] ^= gSetting.SendXOR
+	for i := range cs.sendBuff {
+		cs.sendBuff[i] ^= gSetting.SendBuffXOR
 	}
 }
 
@@ -116,11 +116,11 @@ func (cs *clientSocket) OnRead() {
 			slog.Error("[OnRead]", "err", err)
 			return
 		}
-		cs.XORRecv(cs.recvBuff)
+		cs.XORRecvBuff()
 		// CClientSocket::ManipulatePacket
 		if isHeader {
 			// Decode packet header
-			cs.packetRecv.DecryptHeader(cs.recvBuff)
+			cs.packetRecv.DecryptHeader(cs.recvCipherType, cs.recvBuff)
 			clientVersion := cs.packetRecv.RawSeq ^ binary.LittleEndian.Uint16(cs.seqRcv[2:4])
 			if clientVersion != gSetting.MSVersion {
 				if clientVersion == 223 {
@@ -134,8 +134,8 @@ func (cs *clientSocket) OnRead() {
 		} else {
 			// Decode packet data
 			iPacket := NewCInPacket(cs.recvBuff)
-			iPacket.DecryptData(cs.seqRcv[:])
-			cs.Stepping(cs.seqRcv[:])
+			iPacket.DecryptData(cs.recvCipherType, cs.seqRcv)
+			cs.InnoHash(cs.recvCipherType, cs.seqRcv)
 			cs.delegate.DebugInPacketLog(cs.id, iPacket)
 			cs.delegate.ProcessPacket(cs, iPacket)
 			readSize = HEADER_LENGTH
@@ -153,13 +153,25 @@ func (cs *clientSocket) OnConnect() {
 	if oPacket == nil {
 		oPacket = NewCOutPacket()
 		oPacket.EncodeStr(gSetting.MSMinorVersion)
-		oPacket.EncodeBuffer(cs.seqRcv[:])
-		oPacket.EncodeBuffer(cs.seqSnd[:])
+		oPacket.EncodeBuffer(cs.seqRcv)
+		oPacket.EncodeBuffer(cs.seqSnd)
 		oPacket.Encode1(int8(gSetting.MSRegion))
 	}
 	cs.sendBuff = oPacket.MakeBufferList(NullCipher, nil)
-	cs.XORSend(cs.sendBuff)
+	cs.XORSendBuff()
 	cs.Flush()
+}
+
+// InnoHash implements [CClientSocket].
+func (cs *clientSocket) InnoHash(cipherType CipherType, dwKey []byte) {
+	switch cipherType {
+	case XORCipher:
+		gXORCipher.Shuffle(dwKey)
+	case AESCipher, LinearCipher:
+		(*crypt.CIGCipher).InnoHash(nil, dwKey)
+	default:
+		slog.Warn("Unknown cipher type when Stepping", "cipherType", cipherType)
+	}
 }
 
 // LoopAliveAck implements [CClientSocket].
@@ -217,9 +229,18 @@ func (cs *clientSocket) OnAliveReq(LP_AliveReq uint16) {
 	cs.SendPacket(oPacket)
 }
 
+// SetRecvCipherType implements [CClientSocket].
+func (cs *clientSocket) SetRecvCipherType(cipherType CipherType) {
+	cs.recvCipherType = cipherType
+}
+
+// SetSendCipherType implements [CClientSocket].
+func (cs *clientSocket) SetSendCipherType(cipherType CipherType) {
+	cs.sendCipherType = cipherType
+}
+
 // OnOpcodeEncryption implements [CClientSocket].
 func (cs *clientSocket) OnOpcodeEncryption(LP_OpcodeEncryption uint16, startOpcode uint16, endOpcode uint16, isSplit bool) {
-	cs.CPMap = make(map[uint16]uint16)
 	var builder strings.Builder
 	if isSplit {
 		// Write opcodes range
@@ -248,14 +269,14 @@ func (cs *clientSocket) OnOpcodeEncryption(LP_OpcodeEncryption uint16, startOpco
 	}
 	// Using TripleDESCipher encrypt content
 	content := builder.String()
-	encryptedBuf, err := cs.desCipher.Encrypt(content)
+	encryptedBuf, err := gDESCipher.Encrypt(content)
 	if err != nil {
 		slog.Error("[CClientSocket] Failed to encrypt content using TripleDESCipher", "err", err)
 		return
 	}
 	oPacket := NewCOutPacket(LP_OpcodeEncryption)
 	if !isSplit {
-		oPacket.Encode4(cs.desCipher.GetBlockSize())
+		oPacket.Encode4(gDESCipher.GetBlockSize())
 	}
 	oPacket.Encode4(int32(len(encryptedBuf)))
 	oPacket.EncodeBuffer(encryptedBuf)
@@ -271,43 +292,23 @@ func (cs *clientSocket) DecryptOpcode(randNum uint16) uint16 {
 	return op
 }
 
-// SetLinearCipher implements [CClientSocket].
-func (cs *clientSocket) SetLinearCipher(toggle bool) {
-	cs.isLinearCipher = toggle
-}
-
 // SendPacket implements [CClientSocket].
 func (cs *clientSocket) SendPacket(oPacket COutPacket) {
 	if cs.delegate == nil {
 		return
 	}
 	cs.delegate.DebugOutPacketLog(cs.id, oPacket)
-	if cs.isLinearCipher {
-		cs.sendBuff = oPacket.MakeBufferList(LinearCipher, cs.seqSnd[:])
-	} else {
-		cs.sendBuff = oPacket.MakeBufferList(gSetting.CipherType, cs.seqSnd[:])
-	}
-	cs.Stepping(cs.seqSnd[:])
-	cs.XORSend(cs.sendBuff)
+	cs.sendBuff = oPacket.MakeBufferList(cs.sendCipherType, cs.seqSnd)
+	cs.InnoHash(cs.sendCipherType, cs.seqSnd)
+	cs.XORSendBuff()
 	cs.Flush()
-}
-
-// Stepping implements [CClientSocket].
-func (cs *clientSocket) Stepping(iv []byte) {
-	if iv == nil {
-		return
-	}
-	// Refresh SeqSnd value
-	switch gSetting.CipherType {
-	case XORCipher:
-		(*crypt.XORCipher).Shuffle(nil, iv)
-	case AESCipher, LinearCipher:
-		(*crypt.CIGCipher).InnoHash(nil, iv)
-	}
 }
 
 // Flush implements [CClientSocket].
 func (cs *clientSocket) Flush() {
+	if cs.sock == nil {
+		return
+	}
 	_, err := cs.sock.Write(cs.sendBuff)
 	if err != nil {
 		slog.Error("[CClientSocket] Failed to send packet to client", "err", err)
@@ -323,16 +324,18 @@ func (cs *clientSocket) OnError(err error) {
 
 // Close implements [CClientSocket].
 func (cs *clientSocket) Close() {
-	if cs.stopChan != nil {
-		close(cs.stopChan)
-		cs.stopChan = nil
-	}
-	if cs.sock != nil {
-		cs.sock.Close()
-		cs.sock = nil
-	}
-	if cs.delegate != nil {
-		cs.delegate.SocketClose(cs.id)
-		cs.delegate = nil
-	}
+	cs.closeOnce.Do(func() {
+		if cs.stopChan != nil {
+			close(cs.stopChan)
+			cs.stopChan = nil
+		}
+		if cs.sock != nil {
+			cs.sock.Close()
+			cs.sock = nil
+		}
+		if cs.delegate != nil {
+			cs.delegate.SocketClose(cs.id)
+			cs.delegate = nil
+		}
+	})
 }
