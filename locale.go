@@ -5,48 +5,42 @@ import (
 	"log/slog"
 
 	"golang.org/x/text/encoding"
+	"golang.org/x/text/encoding/charmap"
 	"golang.org/x/text/encoding/japanese"
 	"golang.org/x/text/encoding/korean"
 	"golang.org/x/text/encoding/simplifiedchinese"
 	"golang.org/x/text/encoding/traditionalchinese"
+	"golang.org/x/text/encoding/unicode"
 	"golang.org/x/text/transform"
 )
 
+//nolint:gochecknoglobals // globals used to reduce parameter passing across functions
 var (
-	localeEncoder *encoding.Encoder
 	localeDecoder *encoding.Decoder
+	localeEncoder *encoding.Encoder
 )
 
 func SetLocale(region Region) {
 	switch region {
-	case KMS, KMST:
-		localeEncoder = korean.EUCKR.NewEncoder()
+	case KMS, KMST: // GMSCW
 		localeDecoder = korean.EUCKR.NewDecoder()
+		localeEncoder = korean.EUCKR.NewEncoder()
 	case JMS:
-		localeEncoder = japanese.ShiftJIS.NewEncoder()
 		localeDecoder = japanese.ShiftJIS.NewDecoder()
-	case CMS:
-		localeEncoder = simplifiedchinese.GBK.NewEncoder()
+		localeEncoder = japanese.ShiftJIS.NewEncoder()
+	case CMS, CMST, MSEA:
 		localeDecoder = simplifiedchinese.GBK.NewDecoder()
+		localeEncoder = simplifiedchinese.GBK.NewEncoder()
 	case TMS:
-		localeEncoder = traditionalchinese.Big5.NewEncoder()
 		localeDecoder = traditionalchinese.Big5.NewDecoder()
+		localeEncoder = traditionalchinese.Big5.NewEncoder()
+	case GMS, BMS:
+		localeDecoder = charmap.Windows1252.NewDecoder()
+		localeEncoder = charmap.Windows1252.NewEncoder()
 	default:
-		localeEncoder = encoding.Nop.NewEncoder()
-		localeDecoder = encoding.Nop.NewDecoder()
+		localeDecoder = unicode.UTF8.NewDecoder()
+		localeEncoder = unicode.UTF8.NewEncoder()
 	}
-}
-
-func GetLocaleBuf(s string) []byte {
-	if s == "" {
-		return nil
-	}
-	result, _, err := transform.String(localeEncoder, s)
-	if err != nil {
-		slog.Error(err.Error(), "str", s)
-		return []byte(s)
-	}
-	return []byte(result)
 }
 
 func GetLocaleStr(rawBuf []byte) string {
@@ -67,4 +61,16 @@ func GetLocaleStr(rawBuf []byte) string {
 		return string(rawBuf)
 	}
 	return string(result)
+}
+
+func GetLocaleBuf(s string) []byte {
+	if s == "" {
+		return nil
+	}
+	result, _, err := transform.String(localeEncoder, s)
+	if err != nil {
+		slog.Error(err.Error(), "str", s)
+		return []byte(s)
+	}
+	return []byte(result)
 }

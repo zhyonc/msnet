@@ -16,16 +16,21 @@ import (
 func main() {
 	// Installation
 	msnet.New(&msnet.Setting{
+		LocaleRegion:   msnet.GMS,
 		MSRegion:       msnet.GMS,
 		MSVersion:      95,
 		MSMinorVersion: "1",
 	})
 	// Set logger
-	logFilename := fmt.Sprintf("%s-server-%s.log", msnet.SERVER_TYPE, time.Now().Format("2006-01-02_15-04-05"))
-	closeFile := msnet.SetLogger(msnet.LOG_BACKUP_DIR, logFilename, slog.LevelDebug)
+	logFilename := fmt.Sprintf(
+		"%s-server-%s.log",
+		msnet.ServerType,
+		time.Now().Format("2006-01-02_15-04-05"),
+	)
+	closeFile := msnet.SetLogger(msnet.LogBackupDir, logFilename, slog.LevelDebug, false)
 	defer closeFile()
 	// New Server
-	s := server.NewServer(msnet.SERVER_ADDR)
+	s := server.NewServer(msnet.ServerAddr)
 	// Avoid unexpected exit
 	sch := make(chan os.Signal, 1)
 	signal.Notify(sch, syscall.SIGTERM, syscall.SIGINT)

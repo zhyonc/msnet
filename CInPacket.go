@@ -19,9 +19,10 @@ type iPacket struct {
 }
 
 func NewCInPacket(buf []byte) CInPacket {
-	p := &iPacket{}
-	p.RecvBuff = buf
-	p.Length = len(buf)
+	p := &iPacket{
+		RecvBuff: buf,
+		Length:   len(buf),
+	}
 	return p
 }
 
@@ -43,7 +44,7 @@ func (p *iPacket) DecryptHeader(cipherType CipherType, pBuff []byte) {
 
 // DecryptData implements CInPacket.
 func (p *iPacket) DecryptData(cipherType CipherType, dwKey []byte) {
-	if p.Length <= 0 && p.Length > MAX_DATA_LENGTH {
+	if p.Length <= 0 && p.Length > MaxDataLength {
 		slog.Warn("Invalid data length")
 		return
 	}
@@ -59,6 +60,8 @@ func (p *iPacket) DecryptData(cipherType CipherType, dwKey []byte) {
 		gXORCipher.Decrypt(p.RecvBuff, dwKey)
 	case LinearCipher:
 		gLinearCipher.Decrypt(p.RecvBuff, dwKey)
+	case NullCipher:
+		// Nothing
 	default:
 		slog.Warn("Unknown cipher type when DecryptData", "cipherType", cipherType)
 	}
@@ -103,7 +106,7 @@ func (p *iPacket) Decode1() int8 {
 		return 0
 	}
 	result := int8(p.RecvBuff[p.Offset])
-	p.Offset += 1
+	p.Offset++
 	return result
 }
 
@@ -151,17 +154,16 @@ func (p *iPacket) Decode8() int64 {
 
 // DecodeBuffer implements CInPacket.
 func (p *iPacket) DecodeBuffer(uSize int) []byte {
-	if p.GetRemain() < uSize {
+	remain := p.GetRemain()
+	if uSize <= 0 || remain <= 0 {
 		return nil
 	}
-	if uSize < 0 {
-		uSize = 0
+	if remain < uSize {
+		uSize = remain
 	}
-	result := make([]byte, uSize)
-	for i := range uSize {
-		result[i] = byte(p.Decode1())
-	}
-	return result
+	buf := p.RecvBuff[p.Offset : p.Offset+uSize]
+	p.Offset += uSize
+	return buf
 }
 
 // DecodeStr implements CInPacket.
@@ -182,7 +184,7 @@ func (p *iPacket) DecodeStr() string {
 
 // DecodeName implements CInPacket.
 func (p *iPacket) DecodeName(uSize ...int) string {
-	nameLen := MAX_NAME_LENGTH
+	nameLen := MaxNameLength
 	if len(uSize) > 0 {
 		nameLen = uSize[0]
 	}
@@ -200,21 +202,20 @@ func (p *iPacket) DecodeTime() uint32 {
 	offset := uint32(p.Decode4())
 	if isPast {
 		return cTime - offset
-	} else {
-		return cTime + offset
 	}
+	return cTime + offset
 }
 
 // DecodeDateTime implements CInPacket.
 func (p *iPacket) DecodeDateTime() time.Time {
 	// FileTime is in 100-nanosecond intervals
 	ft := p.Decode8()
-	if ft < FT_EPOCH_DIFF {
+	if ft < FTEpochDiff {
 		return time.Unix(0, 0)
 	}
 	// Subtract FT_EPOCH_DIFF
 	// Multiply by 100 to convert 100ns units -> nanoseconds
-	nano := (ft - FT_EPOCH_DIFF) * 100
+	nano := (ft - FTEpochDiff) * 100
 	return time.Unix(0, nano)
 }
 

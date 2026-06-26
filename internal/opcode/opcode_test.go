@@ -1,7 +1,9 @@
-package opcode
+package opcode_test
 
 import (
 	"testing"
+
+	"github.com/zhyonc/msnet/internal/opcode"
 )
 
 const (
@@ -14,6 +16,7 @@ const (
 )
 
 func TestGenOpcodeMap(t *testing.T) {
-	GenOpcodeMap(cpPath, cpGenPath, cpMapName)
-	GenOpcodeMap(lpPath, lpGenPath, lpMapName)
+	t.Parallel()
+	opcode.GenOpcodeMap(cpPath, cpGenPath, cpMapName)
+	opcode.GenOpcodeMap(lpPath, lpGenPath, lpMapName)
 }

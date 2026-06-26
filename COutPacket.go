@@ -44,7 +44,7 @@ func NewCOutPacket(nType ...any) COutPacket {
 	return p
 }
 
-// GetType implements COutPacket
+// GetType implements [COutPacket].
 func (p *oPacket) GetType() uint16 {
 	bufLen := len(p.SendBuff)
 	switch {
@@ -57,44 +57,43 @@ func (p *oPacket) GetType() uint16 {
 	}
 }
 
-// GetOffset implements COutPacket.
+// GetOffset implements [COutPacket].
 func (p *oPacket) GetOffset() int {
 	return p.Offset
 }
 
-// GetLength implements COutPacket.
+// GetLength implements [COutPacket].
 func (p *oPacket) GetLength() int {
 	return len(p.SendBuff)
 }
 
-// GetSendBuffer implements COutPacket
+// GetSendBuffer implements [COutPacket].
 func (p *oPacket) GetSendBuffer() []byte {
 	return p.SendBuff
 }
 
-// EncodeBool implements COutPacket
+// EncodeBool implements [COutPacket].
 func (p *oPacket) EncodeBool(b bool) {
-	var n byte
+	var n int8
 	if b {
 		n = 1
 	}
-	p.SendBuff = append(p.SendBuff, n)
-	p.Offset++
+	p.Encode1(n)
 }
 
-// Encode1 implements COutPacket
+// Encode1 implements [COutPacket].
 func (p *oPacket) Encode1(n int8) {
 	p.SendBuff = append(p.SendBuff, byte(n))
 	p.Offset++
 }
 
-// Encode2 implements COutPacket
+// Encode2 implements [COutPacket].
 func (p *oPacket) Encode2(n int16) {
 	p.SendBuff = append(p.SendBuff, byte(n), byte(n>>8))
 	p.Offset += 2
 }
 
-// Encode4 implements COutPacket
+// Encode4 implements [COutPacket].
 func (p *oPacket) Encode4(n int32) {
 	buf := make([]byte, 4)
 	for i := range 4 {
@@ -104,7 +103,7 @@ func (p *oPacket) Encode4(n int32) {
 	p.Offset += 4
 }
 
-// Encode8 implements COutPacket
+// Encode8 implements [COutPacket].
 func (p *oPacket) Encode8(n int64) {
 	buf := make([]byte, 8)
 	for i := range 8 {
@@ -114,13 +113,16 @@ func (p *oPacket) Encode8(n int64) {
 	p.Offset += 8
 }
 
-// EncodeBuffer implements COutPacket
+// EncodeBuffer implements [COutPacket].
 func (p *oPacket) EncodeBuffer(buf []byte) {
+	if len(buf) == 0 {
+		return
+	}
 	p.SendBuff = append(p.SendBuff, buf...)
 	p.Offset += len(buf)
 }
 
-// EncodeStr implements COutPacket
+// EncodeStr implements [COutPacket].
 func (p *oPacket) EncodeStr(s string) {
 	rawBuf := GetLocaleBuf(s)
 	rawBufLen := len(rawBuf)
@@ -130,9 +132,9 @@ func (p *oPacket) EncodeStr(s string) {
 	}
 }
 
-// EncodeName implements COutPacket
+// EncodeName implements [COutPacket].
 func (p *oPacket) EncodeName(s string, uSize ...int) {
-	nameLen := MAX_NAME_LENGTH
+	nameLen := MaxNameLength
 	if len(uSize) > 0 {
 		nameLen = uSize[0]
 	}
@@ -154,21 +156,21 @@ func (p *oPacket) EncodeTime(tTime uint32) {
 	}
 }
 
-// EncodeDateTime implements COutPacket
+// EncodeDateTime implements [COutPacket].
 func (p *oPacket) EncodeDateTime(dTime time.Time) {
 	// FileTime is in 100-nanosecond intervals
 	nano := dTime.UnixNano()
 	// Divide by 100 to convert nanoseconds -> 100ns units
 	// Add FT_EPOCH_DIFF
-	ft := nano/100 + FT_EPOCH_DIFF
+	ft := nano/100 + FTEpochDiff
 	p.Encode8(ft)
 }
 
 // EncryptHeader implements [COutPacket].
 func (p *oPacket) EncryptHeader(cipherType CipherType, pBuff []byte, dataLen int, dwKey []byte) {
 	uSeqBaseN := ^gSetting.MSVersion
-	HIWORD := binary.LittleEndian.Uint16(dwKey[2:4])
-	uRawSeq := HIWORD ^ uSeqBaseN
+	highWord := binary.LittleEndian.Uint16(dwKey[2:4])
+	uRawSeq := highWord ^ uSeqBaseN
 	temp := uint16(dataLen)
 	if cipherType != XORCipher {
 		// XORCipher didn't do this
@@ -178,22 +180,22 @@ func (p *oPacket) EncryptHeader(cipherType CipherType, pBuff []byte, dataLen int
 	binary.LittleEndian.PutUint16(pBuff[2:4], temp)
 }
 
-// MakeBufferList implements COutPacket
+// MakeBufferList implements [COutPacket].
 func (p *oPacket) MakeBufferList(cipherType CipherType, dwKey []byte) []byte {
 	dataLen := len(p.SendBuff)
-	bufferList := make([]byte, HEADER_LENGTH+dataLen)
-	copy(bufferList[HEADER_LENGTH:], p.SendBuff)
+	bufferList := make([]byte, HeaderLength+dataLen)
+	copy(bufferList[HeaderLength:], p.SendBuff)
 	switch cipherType {
 	case AESCipher:
 		// Encrypt packet header
 		p.EncryptHeader(cipherType, bufferList, dataLen, dwKey)
 		// IsEncryptedByShanda
 		if gSetting.MSRegion > TMS || (gSetting.MSRegion == CMS && gSetting.MSVersion < 86) {
-			(*crypt.CIOBufferManipulator).En(nil, bufferList[HEADER_LENGTH:])
+			(*crypt.CIOBufferManipulator).En(nil, bufferList[HeaderLength:])
 		}
 		// Encrypt packet data
 		bufferListLen := len(bufferList)
-		blockSize := HEADER_LENGTH + MAX_DATA_LENGTH
+		blockSize := HeaderLength + MaxDataLength
 		// Encrypt First Block
 		firstEnd := min(bufferListLen, blockSize)
 		gAESCipher.Encrypt(bufferList[4:firstEnd], dwKey)
@@ -206,12 +208,12 @@ func (p *oPacket) MakeBufferList(cipherType CipherType, dwKey []byte) []byte {
 		// Encrypt packet header
 		p.EncryptHeader(cipherType, bufferList, dataLen, dwKey)
 		// Encrypt packet data
-		gXORCipher.Encrypt(bufferList[HEADER_LENGTH:], dwKey)
+		gXORCipher.Encrypt(bufferList[HeaderLength:], dwKey)
 	case LinearCipher:
 		// Encrypt packet header
 		p.EncryptHeader(cipherType, bufferList, dataLen, dwKey)
 		// Encrypt packet data
-		gLinearCipher.Encrypt(bufferList[HEADER_LENGTH:], dwKey)
+		gLinearCipher.Encrypt(bufferList[HeaderLength:], dwKey)
 	case NullCipher:
 		// Encode packet header for CClientSocket::OnConnect
 		binary.LittleEndian.PutUint16(bufferList, uint16(dataLen+2)) // +2 for MSVersion
@@ -223,7 +225,7 @@ func (p *oPacket) MakeBufferList(cipherType CipherType, dwKey []byte) []byte {
 	return bufferList
 }
 
-// DumpString implements COutPacket
+// DumpString implements [COutPacket].
 func (p *oPacket) DumpString(nSize int) string {
 	length := len(p.SendBuff)
 	if nSize <= 0 || nSize > length {

@@ -4,6 +4,7 @@ package crypt
 
 type CIOBufferManipulator struct{}
 
+//nolint:ineffassign,wastedassign // reset state for next loop
 func (static *CIOBufferManipulator) De(buf []byte) {
 	var j int32
 	var a, b, c byte
@@ -40,7 +41,6 @@ func (static *CIOBufferManipulator) De(buf []byte) {
 			buf[int32(len(buf))-j] = c
 		}
 	}
-
 }
 
 func (static *CIOBufferManipulator) En(buf []byte) {

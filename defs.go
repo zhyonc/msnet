@@ -2,13 +2,15 @@ package msnet
 
 import "time"
 
+// #region Env
 const (
-	LOG_BACKUP_DIR  string = "./log"
-	SERVER_TYPE     string = "login"
-	SERVER_ADDR     string = "127.0.0.1:8484"
-	HEADER_LENGTH   int    = 4
-	MAX_DATA_LENGTH int    = 1456
-	MAX_NAME_LENGTH int    = 13
+	LogBackupDir  string = "./log"
+	ServerType    string = "login"
+	ServerAddr    string = "127.0.0.1:8484"
+	HeaderLength  int    = 4
+	IVSize        int    = 4
+	MaxDataLength int    = 1456
+	MaxNameLength int    = 13
 )
 
 type Region uint8
@@ -23,29 +25,36 @@ const (
 	TMS   Region = 6
 	MSEA  Region = 7
 	GMS   Region = 8
-	EMS   Region = 9
 	BMS   Region = 9
 )
 
-const FT_EPOCH_DIFF int64 = 116444736000000000 // (difference between 1601 and 1970 epochs)
+// #endregion
 
+// #region Time
+
+const FTEpochDiff int64 = 116444736000000000 // (difference between 1601 and 1970 epochs)
+
+//nolint:gochecknoglobals,golines // default fixed constant
 var (
-	ST_ZERO          time.Time                                                   // ST 0001-01-01 00:00:00 <-> FT -504911232000000000
-	ST_ZERO_OVERFLOW time.Time = time.Date(1754, 8, 30, 22, 43, 41, 0, time.UTC) // ST 1754-08-30 22:43:41 <-> FT 48491090210000000
-	ST_SQL_MIN       time.Time = time.Date(1753, 1, 1, 0, 0, 0, 0, time.UTC)     // ST 1753-01-01 00:00:00 <-> FT 47966688000000000
-	ST_SQL_MIN_DATE  time.Time = time.Date(1000, 1, 1, 0, 0, 0, 0, time.UTC)     // ST 1000-01-01 00:00:00 <-> FT -189657504000000000
-	ST_START         time.Time = time.Date(1900, 1, 1, 0, 0, 0, 0, time.UTC)     // ST 1900-01-01 00:00:00 <-> FT 94354848000000000
-	ST_END           time.Time = time.Date(2079, 1, 1, 0, 0, 0, 0, time.UTC)     // ST 2079-01-01 00:00:00 <-> FT 150842304000000000
-	ST_EMPTY         time.Time = time.Date(0, 0, 0, 0, 0, 0, 0, time.UTC)        // ST 0000-00-00 00:00:00 <-> FT -505255104000000000
+	STZero         time.Time                                                   // ST 0001-01-01 00:00:00 <-> FT -504911232000000000
+	STZeroOverflow time.Time = time.Date(1754, 8, 30, 22, 43, 41, 0, time.UTC) // ST 1754-08-30 22:43:41 <-> FT 48491090210000000
+	STSQLMin       time.Time = time.Date(1753, 1, 1, 0, 0, 0, 0, time.UTC)     // ST 1753-01-01 00:00:00 <-> FT 47966688000000000
+	STSQLMinDate   time.Time = time.Date(1000, 1, 1, 0, 0, 0, 0, time.UTC)     // ST 1000-01-01 00:00:00 <-> FT -189657504000000000
+	STStart        time.Time = time.Date(1900, 1, 1, 0, 0, 0, 0, time.UTC)     // ST 1900-01-01 00:00:00 <-> FT 94354848000000000
+	STEnd          time.Time = time.Date(2079, 1, 1, 0, 0, 0, 0, time.UTC)     // ST 2079-01-01 00:00:00 <-> FT 150842304000000000
+	STEmpty        time.Time = time.Date(0, 0, 0, 0, 0, 0, 0, time.UTC)        // ST 0000-00-00 00:00:00 <-> FT -505255104000000000
 )
 
+// #endregion
+
+// #region Cipher
 const (
-	GMSCW_DES_KEY string = "G0dD@mnN#H@ckEr!"
-	KMS_DES_KEY   string = "G0dD@mnN#H@ckEr!"
-	JMS_DES_KEY   string = "M@pl3J@p@nH@ck3r"
-	CMS_DES_KEY   string = "aVbTpJ5=ZjG&Db3$"
-	TMS_DES_KEY   string = "BrN=r54jQp2@yP6G"
-	GMS_DES_KEY   string = "N3x@nGLEUH@ckEr!"
+	GMSCWDESKey string = "G0dD@mnN#H@ckEr!"
+	KMSDESKey   string = "G0dD@mnN#H@ckEr!"
+	JMSDESKey   string = "M@pl3J@p@nH@ck3r"
+	CMSDESKey   string = "aVbTpJ5=ZjG&Db3$"
+	TMSDESKey   string = "BrN=r54jQp2@yP6G"
+	GMSDESKey   string = "N3x@nGLEUH@ckEr!"
 )
 
 type CipherType uint8
@@ -73,6 +82,7 @@ const (
 	Shuffle
 )
 
+//nolint:gochecknoglobals,golines // default fixed constant
 var (
 	AESKeyDefault = [32]byte{
 		0x13, 0x00, 0x00, 0x00,
@@ -108,3 +118,5 @@ var (
 		19: {0x9F, 0x00, 0x00, 0x00, 0x15, 0x00, 0x00, 0x00, 0xFE, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x8F, 0x00, 0x00, 0x00, 0x43, 0x00, 0x00, 0x00, 0xCA, 0x00, 0x00, 0x00, 0xD3, 0x00, 0x00, 0x00},
 	}
 )
+
+// #endregion

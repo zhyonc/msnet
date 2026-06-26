@@ -3,8 +3,8 @@ package crypt
 import (
 	"bytes"
 	"crypto/cipher"
-	"crypto/des"
-	"fmt"
+	"crypto/des" //nolint:gosec // required for legacy DES compatibility
+	"errors"
 )
 
 type TripleDESCipher struct {
@@ -14,15 +14,16 @@ type TripleDESCipher struct {
 
 func NewTripleDESCipher(desKey string) *TripleDESCipher {
 	finalKey := make([]byte, 24)
-	if len(desKey) == 16 {
+	switch len(desKey) {
+	case 16:
 		copy(finalKey[0:16], desKey)
 		copy(finalKey[16:24], desKey[0:8])
-	} else if len(desKey) == 24 {
+	case 24:
 		copy(finalKey, desKey)
-	} else {
+	default:
 		panic("des key length must be 16 or 24 byte")
 	}
-	temp, err := des.NewTripleDESCipher(finalKey)
+	temp, err := des.NewTripleDESCipher(finalKey) //nolint:gosec // required for legacy DES compatibility
 	if err != nil {
 		panic(err)
 	}
@@ -38,7 +39,7 @@ func (c *TripleDESCipher) GetBlockSize() int32 {
 
 func (c *TripleDESCipher) Encrypt(content string) ([]byte, error) {
 	if c.block == nil {
-		return nil, fmt.Errorf("cipher block is empty")
+		return nil, errors.New("cipher block is empty")
 	}
 	buf := []byte(content)
 	blockSize := c.block.BlockSize()
@@ -55,7 +56,7 @@ func (c *TripleDESCipher) Encrypt(content string) ([]byte, error) {
 
 func (c *TripleDESCipher) Decrypt(buf []byte) (string, error) {
 	if c.block == nil {
-		return "", fmt.Errorf("cipher block is empty")
+		return "", errors.New("cipher block is empty")
 	}
 	blockSize := c.block.BlockSize()
 	if len(buf)%blockSize != 0 {

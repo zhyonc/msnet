@@ -6,6 +6,7 @@ import (
 	"github.com/zhyonc/msnet/internal/crypt"
 )
 
+//nolint:gochecknoglobals // globals used to reduce parameter passing across functions
 var (
 	gSetting      *Setting
 	gDESCipher    *crypt.TripleDESCipher
@@ -15,24 +16,31 @@ var (
 )
 
 func New(setting *Setting) {
+	if setting == nil {
+		panic("Unknown setting")
+	}
 	gSetting = setting
+	// Locale
 	SetLocale(gSetting.LocaleRegion)
+	// DESKey
 	if gSetting.DESKey != "" {
 		gDESCipher = crypt.NewTripleDESCipher(gSetting.DESKey)
 	}
+	// AESKey
 	aesKey := setting.AESKey
 	if aesKey[0] == 0 {
 		switch gSetting.AESKeyType {
 		case DefaultKey:
 			aesKey = AESKeyDefault
 		case CycleKey:
-			aesKey = CycleAESKeys[(gSetting.MSVersion)%20]
+			aesKey = CycleAESKeys[gSetting.MSVersion%20]
 		case CycleKey13:
 			aesKey = CycleAESKeys[(gSetting.MSVersion+13)%20]
 		default:
 			panic("Unknown aes key type")
 		}
 	}
+	// Cipher
 	gAESCipher = crypt.NewCAESCipher(aesKey, uint8(gSetting.AESInitType))
 	gXORCipher = crypt.NewXORCipher()
 	gLinearCipher = crypt.NewLinearCipher()
@@ -49,11 +57,16 @@ type CClientSocket interface {
 	InnoHash(cipherType CipherType, dwKey []byte)
 	LoopAliveAck(aliveAckSec int)
 	OnAliveAck()
-	LoopAliveReq(aliveReqSec int, LP_AliveReq uint16)
-	OnAliveReq(LP_AliveReq uint16)
+	LoopAliveReq(aliveReqSec int, lpAliveReq uint16)
+	OnAliveReq(lpAliveReq uint16)
 	SetRecvCipherType(cipherType CipherType)
 	SetSendCipherType(cipherType CipherType)
-	OnOpcodeEncryption(LP_OpcodeEncryption uint16, startOpcode uint16, endOpcode uint16, isSplit bool)
+	OnOpcodeEncryption(
+		lpOpcodeEncryption uint16,
+		startOpcode uint16,
+		endOpcode uint16,
+		isSplit bool,
+	)
 	DecryptOpcode(randNum uint16) uint16
 	SendPacket(oPacket COutPacket)
 	Flush()
@@ -64,7 +77,13 @@ type CClientSocket interface {
 type CClientSocketDelegate interface {
 	DebugInPacketLog(id int32, iPacket CInPacket)
 	DebugOutPacketLog(id int32, oPacket COutPacket)
-	NewConnectPacket(region Region, version uint16, minorVersion string, seqRcv []byte, seqSnd []byte) COutPacket
+	NewConnectPacket(
+		region Region,
+		version uint16,
+		minorVersion string,
+		seqRcv []byte,
+		seqSnd []byte,
+	) COutPacket
 	ProcessPacket(cs CClientSocket, iPacket CInPacket)
 	SocketClose(id int32)
 }

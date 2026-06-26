@@ -3,6 +3,7 @@ package msnet
 import (
 	crand "crypto/rand"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math"
@@ -33,7 +34,12 @@ type clientSocket struct {
 	lastAliveAckTime time.Time
 }
 
-func NewCClientSocket(delegate CClientSocketDelegate, conn net.Conn, rcvIV []byte, sndIV []byte) CClientSocket {
+func NewCClientSocket(
+	delegate CClientSocketDelegate,
+	conn net.Conn,
+	rcvIV []byte,
+	sndIV []byte,
+) CClientSocket {
 	if gSetting == nil {
 		panic("[CClientSocket] Please use msnet.New(setting) to install package")
 	}
@@ -50,14 +56,14 @@ func NewCClientSocket(delegate CClientSocketDelegate, conn net.Conn, rcvIV []byt
 	cs.sendCipherType = gSetting.SendCipherType
 	// IV
 	if len(rcvIV) == 0 {
-		cs.seqRcv = make([]byte, 4)
-		crand.Read(cs.seqRcv[:])
+		cs.seqRcv = make([]byte, IVSize)
+		_, _ = crand.Read(cs.seqRcv)
 	} else {
 		cs.seqRcv = rcvIV
 	}
 	if len(sndIV) == 0 {
-		cs.seqSnd = make([]byte, 4)
-		crand.Read(cs.seqSnd[:])
+		cs.seqSnd = make([]byte, IVSize)
+		_, _ = crand.Read(cs.seqSnd)
 	} else {
 		cs.seqSnd = sndIV
 	}
@@ -103,7 +109,7 @@ func (cs *clientSocket) XORSendBuff() {
 
 // OnRead implements [CClientSocket].
 func (cs *clientSocket) OnRead() {
-	readSize := HEADER_LENGTH
+	readSize := HeaderLength
 	isHeader := true
 	defer cs.Close()
 	for {
@@ -122,13 +128,10 @@ func (cs *clientSocket) OnRead() {
 			// Decode packet header
 			cs.packetRecv.DecryptHeader(cs.recvCipherType, cs.recvBuff)
 			clientVersion := cs.packetRecv.RawSeq ^ binary.LittleEndian.Uint16(cs.seqRcv[2:4])
-			if clientVersion != gSetting.MSVersion {
-				if clientVersion == 223 {
-					// GMSCW v1.0
-				} else {
-					cs.OnError(fmt.Errorf("failed to decode packet header"))
-					return
-				}
+			if clientVersion != gSetting.MSVersion && clientVersion != 223 {
+				// The magic number(223) just for GMSCW v1.0
+				cs.OnError(errors.New("failed to decode packet header"))
+				return
 			}
 			readSize = cs.packetRecv.DataLen
 		} else {
@@ -138,7 +141,7 @@ func (cs *clientSocket) OnRead() {
 			cs.InnoHash(cs.recvCipherType, cs.seqRcv)
 			cs.delegate.DebugInPacketLog(cs.id, iPacket)
 			cs.delegate.ProcessPacket(cs, iPacket)
-			readSize = HEADER_LENGTH
+			readSize = HeaderLength
 		}
 		isHeader = !isHeader
 	}
@@ -149,7 +152,13 @@ func (cs *clientSocket) OnConnect() {
 	if cs.delegate == nil {
 		return
 	}
-	oPacket := cs.delegate.NewConnectPacket(gSetting.MSRegion, gSetting.MSVersion, gSetting.MSMinorVersion, cs.seqRcv, cs.seqSnd)
+	oPacket := cs.delegate.NewConnectPacket(
+		gSetting.MSRegion,
+		gSetting.MSVersion,
+		gSetting.MSMinorVersion,
+		cs.seqRcv,
+		cs.seqSnd,
+	)
 	if oPacket == nil {
 		oPacket = NewCOutPacket()
 		oPacket.EncodeStr(gSetting.MSMinorVersion)
@@ -169,6 +178,8 @@ func (cs *clientSocket) InnoHash(cipherType CipherType, dwKey []byte) {
 		gXORCipher.Shuffle(dwKey)
 	case AESCipher, LinearCipher:
 		(*crypt.CIGCipher).InnoHash(nil, dwKey)
+	case NullCipher:
+		// Nothing
 	default:
 		slog.Warn("Unknown cipher type when Stepping", "cipherType", cipherType)
 	}
@@ -204,7 +215,7 @@ func (cs *clientSocket) OnAliveAck() {
 }
 
 // LoopAliveReq implements [CClientSocket].
-func (cs *clientSocket) LoopAliveReq(aliveReqSec int, LP_AliveReq uint16) {
+func (cs *clientSocket) LoopAliveReq(aliveReqSec int, lpAliveReq uint16) {
 	if aliveReqSec <= 0 {
 		return
 	}
@@ -215,7 +226,7 @@ func (cs *clientSocket) LoopAliveReq(aliveReqSec int, LP_AliveReq uint16) {
 		for {
 			select {
 			case <-ticker.C:
-				cs.OnAliveReq(LP_AliveReq)
+				cs.OnAliveReq(lpAliveReq)
 			case <-cs.stopChan:
 				return
 			}
@@ -224,8 +235,8 @@ func (cs *clientSocket) LoopAliveReq(aliveReqSec int, LP_AliveReq uint16) {
 }
 
 // OnAliveReq implements [CClientSocket].
-func (cs *clientSocket) OnAliveReq(LP_AliveReq uint16) {
-	oPacket := NewCOutPacket(LP_AliveReq)
+func (cs *clientSocket) OnAliveReq(lpAliveReq uint16) {
+	oPacket := NewCOutPacket(lpAliveReq)
 	cs.SendPacket(oPacket)
 }
 
@@ -240,7 +251,12 @@ func (cs *clientSocket) SetSendCipherType(cipherType CipherType) {
 }
 
 // OnOpcodeEncryption implements [CClientSocket].
-func (cs *clientSocket) OnOpcodeEncryption(LP_OpcodeEncryption uint16, startOpcode uint16, endOpcode uint16, isSplit bool) {
+func (cs *clientSocket) OnOpcodeEncryption(
+	lpOpcodeEncryption uint16,
+	startOpcode uint16,
+	endOpcode uint16,
+	isSplit bool,
+) {
 	var builder strings.Builder
 	if isSplit {
 		// Write opcodes range
@@ -248,13 +264,14 @@ func (cs *clientSocket) OnOpcodeEncryption(LP_OpcodeEncryption uint16, startOpco
 		builder.WriteRune('|')
 	}
 	// Convert opcode to rand num
-	max := int32(math.MaxUint16)
+	maxOp := int32(math.MaxUint16)
 	for op := startOpcode; op <= endOpcode; op++ {
 		// Bind rand num with opcode
-		min := int32(op)
+		minOp := int32(op)
 		var randNum uint16
 		for {
-			randNum = uint16(mrand.Int32N(max-min+1) + min)
+			//nolint:gosec // math/rand is fine for non-cryptographic random numbers
+			randNum = uint16(mrand.Int32N(maxOp-minOp+1) + minOp)
 			if _, ok := cs.CPMap[randNum]; !ok {
 				break
 			}
@@ -274,7 +291,7 @@ func (cs *clientSocket) OnOpcodeEncryption(LP_OpcodeEncryption uint16, startOpco
 		slog.Error("[CClientSocket] Failed to encrypt content using TripleDESCipher", "err", err)
 		return
 	}
-	oPacket := NewCOutPacket(LP_OpcodeEncryption)
+	oPacket := NewCOutPacket(lpOpcodeEncryption)
 	if !isSplit {
 		oPacket.Encode4(gDESCipher.GetBlockSize())
 	}
@@ -330,7 +347,10 @@ func (cs *clientSocket) Close() {
 			cs.stopChan = nil
 		}
 		if cs.sock != nil {
-			cs.sock.Close()
+			err := cs.sock.Close()
+			if err != nil {
+				slog.Error(err.Error())
+			}
 			cs.sock = nil
 		}
 		if cs.delegate != nil {

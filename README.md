@@ -1,5 +1,5 @@
 # msnet
-msnet is a pure Golang networking package for MapleStory
+msnet is MapleStory networking package implemented in Golang
 
 ## Installation
  `$ go get github.com/zhyonc/msnet@latest`
@@ -9,28 +9,32 @@ msnet is a pure Golang networking package for MapleStory
 package main
 
 import (
+	"context"
+	"fmt"
 	"log/slog"
 	"net"
 	"sync/atomic"
+	"time"
 
 	"github.com/zhyonc/msnet"
 )
 
-type server struct {
+type Server struct {
 	addr string
 	lis  net.Listener
 	idCount atomic.Int32
 }
 
-func NewServer(addr string) *server {
-	s := &server{
-		addr: addr,
+func NewServer(addr string) *Server {
+	s := &Server{
+		addr:    addr,
 	}
 	return s
 }
 
-func (s *server) Run() {
-	lis, err := net.Listen("tcp", s.addr)
+func (s *Server) Run() {
+	var lc net.ListenConfig
+	lis, err := lc.Listen(context.Background(), "tcp", s.addr)
 	if err != nil {
 		slog.Error("Failed to create tcp listener", "err", err)
 		return
@@ -56,7 +60,7 @@ func (s *server) Run() {
 	}
 }
 
-func (s *server) Shutdown() {
+func (s *Server) Shutdown() {
 	if s.lis != nil {
 		s.lis.Close()
 		s.lis = nil
@@ -65,6 +69,7 @@ func (s *server) Shutdown() {
 
 func main() {
 	msnet.New(&msnet.Setting{
+		LocaleRegion:   msnet.GMS,
 		MSRegion:       msnet.GMS,
 		MSVersion:      95,
 		MSMinorVersion: "1",
@@ -75,8 +80,8 @@ func main() {
 
 ```
 ## Setting
-- LocaleRegion: Language Regions including `EUCKR(KMS)/ShiftJIS(JMS)/GBK(CMS)/Big5(TMS)`
-- MSRegion: MapleStory Regions including `GMSCW(1)/KMS(1)`/`KMST(2)`/`JMS(3)`/`CMS(4)`/`TMS(6)`/`MSEA(7)`/`GMS(8)`/`BMS(9)`
+- LocaleRegion: Language Regions including `EUCKR(KMS)/ShiftJIS(JMS)/GBK(CMS)/Big5(TMS)/Windows1252(GMS)`
+- MSRegion: MapleStory Regions including `GMSCW(1)/KMS(1)`/`KMST(2)`/`JMS(3)`/`CMS(4)`/`CMST(5)`/`TMS(6)`/`MSEA(7)`/`GMS(8)`/`BMS(9)`
 - MSVersion: MapleStory Client Version
 - MSMinorVersion: MapleStory Client Minor Version
 - RecvCipherType: Defines how `CInPacket` are decrypted
